@@ -9,10 +9,10 @@
 import type { Engine } from '../sim/engine';
 import type { Sel } from './ctx';
 
-export type View = 'all' | 'gis' | 'scada' | 'sw' | 'ops' | 'oms' | 'radio' | 'crew' | 'alarms';
+export type View = 'all' | 'wall' | 'gis' | 'scada' | 'sw' | 'ops' | 'oms' | 'radio' | 'crew' | 'alarms' | 'rel';
 export const VIEWS: [View, string][] = [
-  ['all', 'Full console'], ['gis', 'GIS map'], ['scada', 'SCADA'], ['sw', 'Switching'], ['ops', 'Ops desk (OMS · radio · units · alarms)'],
-  ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms'],
+  ['all', 'Full console'], ['wall', 'Status wall (big screen / projector)'], ['gis', 'GIS map'], ['scada', 'SCADA'], ['sw', 'Switching'], ['ops', 'Ops desk (OMS · radio · units · alarms)'],
+  ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms'], ['rel', 'Reliability'],
 ];
 
 /** Engine methods that change simulation state — forwarded to the main console from linked windows. */
@@ -20,11 +20,13 @@ export const ACTIONS = new Set([
   'ackAlarm', 'ackAll', 'scadaControl', 'dispatch', 'recall', 'statusCheck', 'cellCall', 'welfareCheck',
   'approve', 'deny', 'releaseClearance', 'newOrder', 'addStep', 'removeStep', 'activateOrder', 'cancelOrder',
   'issueStep', 'confirmRepeat', 'verifyIncident', 'decision', 'setSpeed', 'setPaused', 'setAutoAssist',
+  'rosterAdd', 'rosterEdit', 'rosterRemove',
 ]);
 
 export type Msg =
   | { type: 'state'; from: string; gen: number; s: any; readings: any; devKw: any }
   | { type: 'hello'; from: string; view: View; master: boolean }
+  | { type: 'bye'; from: string }
   | { type: 'act'; from: string; method: string; args: any[] }
   | { type: 'result'; to: string; text: string }
   | { type: 'sel'; from: string; sel: Sel }

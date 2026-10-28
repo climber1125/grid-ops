@@ -113,4 +113,8 @@ src/ui/             ← operator workstation (React)
 - **More trucks:** add to `TRUCK_ROSTER` (engine.ts) and `addTruck()` in a scenario.
 - **More network:** add a `FeederSpec` / `TieSpec` in `topology.ts`; laterals, transformers and customers generate deterministically.
 - **New scenario:** add an entry to `SCENARIOS` with `setup`, scripted `event`s, `periodic` grading, and `isDone`.
-- **Multi-monitor:** built in. **Monitors → Spread across all screens** (Chrome/Edge) or open any view in its own window. One window runs the simulation, the rest mirror it and send actions to it; if the main window closes, a linked window takes over. Views: `?mon=all|gis|scada|sw|ops|oms|radio|crew|alarms`.
+- **Roster:** M5 → *Roster* tab. Add a truck (number, crew, equipment), edit names, or remove a unit. Your roster is remembered for every new scenario; *Reset to defaults* clears it.
+- **Reliability:** M5 → *Reliability* tab (or the *Reliability* view). Live exercise SAIDI, SAIFI, CAIDI, MAIFI, plus per-incident dispatch, response (report → on scene), restore time and customer-minutes. Also in OMS history and the AAR.
+- **Status wall:** a big-screen view for a TV or projector — customers out, incidents, crews, indices, feeder loading, last radio traffic.
+- **Light / dark:** ☀/☾ in the top bar. Saved per view, so a projector wall can stay light while the desk monitors stay dark.
+- **Multi-monitor:** built in. **Monitors → Spread across all screens** (Chrome/Edge) or open any view in its own window. One window runs the simulation, the rest mirror it and send actions to it; if the main window closes, a linked window takes over. Views: `?mon=all|wall|gis|scada|sw|ops|oms|radio|crew|alarms|rel`. Leadership uses the browser's Web Locks API, so a minimized or background main window is never mistaken for a closed one, and its clock runs in a worker so it keeps full speed in the background.

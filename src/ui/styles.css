@@ -316,3 +316,93 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .monmenu { position: fixed; top: 52px; right: 8px; width: 300px; z-index: 1500; background: var(--bg1); border: 1px solid var(--line2); box-shadow: 0 8px 30px rgba(0,0,0,.6); padding: 10px; }
 .monbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .monbtns .btn { white-space: normal; text-align: left; }
+
+/* ── Reliability panel ───────────────────────────────────── */
+.relgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.relgrid .metric .v small, .wtile .v small { font-size: .55em; color: var(--dim); font-weight: 600; }
+.metric .h { font-size: 9.5px; color: var(--dim); }
+
+/* ── Status wall (TV / projector) ────────────────────────── */
+.wall { flex: 1; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; padding: 8px; min-height: 0; background: var(--bg0); }
+.wall-hero { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 8px; }
+.wall-rel { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.wall-main { display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; min-height: 0; }
+.wall-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wtile { background: var(--bg1); border: 1px solid var(--line); padding: clamp(6px, 1vw, 16px); }
+.wtile .k { font-size: clamp(11px, 1vw, 18px); color: var(--dim); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
+.wtile .v { font: 700 clamp(28px, 4.2vw, 84px)/1.05 var(--mono); }
+.wtile.big .v { font-size: clamp(40px, 6.5vw, 130px); }
+.wtile.sm .v { font-size: clamp(18px, 2.2vw, 44px); }
+.wtile .sub { font-size: clamp(11px, 1vw, 18px); color: var(--text2); margin-top: 2px; }
+.wpanel { background: var(--bg1); border: 1px solid var(--line); padding: clamp(6px, .8vw, 14px); min-height: 0; overflow: hidden; }
+.wh { font-size: clamp(11px, 1vw, 18px); color: var(--dim); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; margin-bottom: 6px; }
+.wrow { display: flex; gap: clamp(6px, .8vw, 14px); align-items: center; font-size: clamp(12px, 1.25vw, 24px); padding: clamp(3px, .4vw, 8px) 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.wrow .grow { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.wrow .badge, .wrow .chip { font-size: clamp(10px, 1vw, 18px); line-height: 1.4; }
+.wrow.p1 { box-shadow: inset 4px 0 0 var(--red); padding-left: 8px; }
+.wempty { font-size: clamp(16px, 2vw, 36px); color: var(--green); padding: 12px 0; font-weight: 600; }
+.fbar { display: grid; grid-template-columns: 90px 1fr 48px 70px; gap: 8px; align-items: center; font-size: clamp(11px, 1vw, 18px); padding: 2px 0; }
+.fbar .track { height: clamp(8px, .9vw, 16px); background: var(--bg3); border: 1px solid var(--line); }
+.fbar .fill { height: 100%; }
+.wradio { font-size: clamp(11px, 1.05vw, 20px); padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws.v-wall .topbar { opacity: .85; }
+
+/* ── Light theme (projectors / bright rooms) ─────────────── */
+:root[data-theme="light"] {
+  --bg0: #e6ebf0; --bg1: #f8fafc; --bg2: #eef2f6; --bg3: #e2e8ee; --bg4: #d5dde6;
+  --line: #ccd5df; --line2: #b3c0ce; --text: #111c27; --text2: #33475b; --dim: #5a6b7d;
+  --cyan: #07708a; --cyan2: #07708a; --green: #0f7d47; --amber: #9a6100; --red: #bf1f1f;
+  color-scheme: light;
+}
+:root[data-theme="light"] body { background: var(--bg0); }
+:root[data-theme="light"] .ph, :root[data-theme="light"] .topbar { background: linear-gradient(#f4f7fa, #e7edf2); }
+:root[data-theme="light"] table.grid th { background: #edf1f5; }
+:root[data-theme="light"] table.grid td { border-bottom-color: #e1e7ed; }
+:root[data-theme="light"] table.grid tr.row:hover td { background: #e8f1f7; }
+:root[data-theme="light"] table.grid tr.sel td { background: #d6eaf4 !important; }
+:root[data-theme="light"] .btn.pri { background: #dff1f6; color: #05566b; }
+:root[data-theme="light"] .btn.warn { background: #fbf0d9; color: #7a4c00; border-color: #d9b46a; }
+:root[data-theme="light"] .btn.danger { background: #fbe3e3; color: #9d1717; border-color: #e09a9a; }
+:root[data-theme="light"] .btn.good { background: #def3e7; color: #0c6a3b; border-color: #8fcaa8; }
+:root[data-theme="light"] .badge { background: #dce3ea; color: #33475b; }
+:root[data-theme="light"] .badge.p1, :root[data-theme="light"] .badge.red { background: #f6d3d3; color: #9d1717; }
+:root[data-theme="light"] .badge.p2, :root[data-theme="light"] .badge.amber { background: #f7e6c3; color: #7a4c00; }
+:root[data-theme="light"] .badge.p3, :root[data-theme="light"] .badge.cyan { background: #d2e9f1; color: #05566b; }
+:root[data-theme="light"] .badge.green { background: #d3eedf; color: #0c6a3b; }
+:root[data-theme="light"] .state.closed { background: #f6d3d3; color: #9d1717; }
+:root[data-theme="light"] .state.open { background: #d3eedf; color: #0c6a3b; }
+:root[data-theme="light"] .chip.Available { color: #0c6a3b; border-color: #8fcaa8; }
+:root[data-theme="light"] .chip.EnRoute, :root[data-theme="light"] .chip.Dispatched { color: #7a4c00; border-color: #d9b46a; }
+:root[data-theme="light"] .chip.OnScene, :root[data-theme="light"] .chip.Working { color: #23439a; border-color: #9fb3e3; }
+:root[data-theme="light"] .chip.StandingBy, :root[data-theme="light"] .chip.Switching { color: #5a2f9a; border-color: #c2a8e6; }
+:root[data-theme="light"] .tx-line { border-bottom-color: #e1e7ed; }
+:root[data-theme="light"] .tx-line .who { color: #3a5f80; }
+:root[data-theme="light"] .tx-line.ctl .msg { color: #0d2f3a; }
+:root[data-theme="light"] .tx-line.emergency .msg { color: #9d1717; }
+:root[data-theme="light"] .tx-line.switching .msg { color: #5a2f9a; }
+:root[data-theme="light"] .radio-head, :root[data-theme="light"] .unitbar { background: #eef2f6; }
+:root[data-theme="light"] .req { background: #fbf3e2; border-bottom-color: #e7dcc4; }
+:root[data-theme="light"] .req.clearance, :root[data-theme="light"] .req.release { background: #f1eafb; }
+:root[data-theme="light"] .req .rt b { color: #7a4c00; }
+:root[data-theme="light"] .toast { background: rgba(250,252,253,.97); }
+:root[data-theme="light"] .inspector, :root[data-theme="light"] .mapctl, :root[data-theme="light"] .legend, :root[data-theme="light"] .objbar { background: rgba(250,252,253,.95); }
+:root[data-theme="light"] .rbbox { background: #f3eefb; border-color: #c2a8e6; }
+:root[data-theme="light"] .rbbox .q { color: #3e1f73; }
+:root[data-theme="light"] .warnbox { background: #fbe9e9; color: #8f1a1a; border-color: #e3a3a3; }
+:root[data-theme="light"] .okbox { background: #e3f4ea; color: #0c6a3b; border-color: #9fd0b3; }
+:root[data-theme="light"] .sbo-arm { background: #fbf0d9; color: #7a4c00; border-color: #d9b46a; }
+:root[data-theme="light"] .hold td { background: #fbf0d9 !important; color: #7a4c00; }
+:root[data-theme="light"] .steprow.cur td { background: #e2f0f7; }
+:root[data-theme="light"] .sw-item.on, :root[data-theme="light"] .subbtn.on, :root[data-theme="light"] .scen-card.on { background: #ddeef5; }
+:root[data-theme="light"] .alarm-row.unack td { color: #111c27; }
+:root[data-theme="light"] .clock { color: #0b1620; }
+:root[data-theme="light"] .weather.warning { color: #9d1717; }
+:root[data-theme="light"] .modal-bg { background: rgba(30,40,52,.45); }
+:root[data-theme="light"] .linkpill.rep { color: #5a2f9a; border-color: #c2a8e6; }
+/* Map and one-line graphics are drawn dark; flip them for light mode (hues are preserved). */
+:root[data-theme="light"] .mapwrap .leaflet-container,
+:root[data-theme="light"] .scada-svg svg { filter: invert(1) hue-rotate(180deg) saturate(1.3); }
+:root[data-theme="light"] .scada-svg { background: #f7f2ec; }
+
+.tab { white-space: nowrap; }
+.ph .tabs { overflow: hidden; }

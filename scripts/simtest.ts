@@ -131,3 +131,16 @@ console.log('Topology: nodes', Object.keys(T.nodes).length, 'els', Object.keys(T
   run(e2, 60);
   console.log('[C] save/restore OK, size KB', (json.length / 1024).toFixed(0), 't', e2.s.t.toFixed(0));
 }
+
+// ── Roster + reliability
+{
+  const e = Engine.create('A', 77);
+  console.log('\n[R] add 241', e.rosterAdd('241', 'Lenz / Pool', '55 ft bucket'), 'dup', e.rosterAdd('241', 'x', 'y'), 'bad', e.rosterAdd('ab', 'x', 'y'));
+  run(e, 1800);
+  const inc = Object.values(e.s.incidents).find(i => i.crew);
+  console.log('[R] remove crew on incident', inc?.crew, e.rosterRemove(inc!.crew!), 'inc now', inc!.crew, inc!.status);
+  run(e, 1800);
+  const r = e.reliability();
+  console.log('[R] SAIDI', r.saidi.toFixed(2), 'SAIFI', r.saifi.toFixed(3), 'CAIDI', r.caidi.toFixed(1), 'MAIFI', r.maifi.toFixed(3), 'avgResp', r.avgResp && (r.avgResp / 60).toFixed(1), 'avgRestore', r.avgRestore && (r.avgRestore / 60).toFixed(1), 'trucks', Object.keys(e.s.trucks).join(','));
+  console.log('[R] incident cmi sample', Object.values(e.s.incidents).slice(0, 4).map(i => `${i.id}:${Math.round(i.cmi ?? 0)}:${i.onSceneT != null ? Math.round((i.onSceneT - i.t) / 60) + 'm' : '-'}`).join(' '));
+}

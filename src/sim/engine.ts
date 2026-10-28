@@ -435,7 +435,7 @@ export class Engine {
       id, t: this.s.t, kind, source, truthDev, predDev, feeder: d.feeder, loadId, status: 'New', priority: 3,
       critical: false, hazard: false, calls: [], callLoads: [], crew: null, crewHistory: [], etr: null, cause: null,
       faults: [], timeline: [{ t: this.s.t, text: `Incident created (${source}) — predicted device ${predDev}` }],
-      custOut: 0, peak: 0, stage: 'Assess', isolation: [], firstDispatchT: null, restoredT: null, closedT: null,
+      custOut: 0, peak: 0, stage: 'Assess', isolation: [], firstDispatchT: null, restoredT: null, closedT: null, onSceneT: null, cmi: 0,
     };
     if (truthDev && this.s.dev[truthDev].tripFault) inc.faults.push(this.s.dev[truthDev].tripFault!);
     this.s.incidents[id] = inc;
@@ -1074,6 +1074,7 @@ export class Engine {
       if (tr.task?.kind !== 'incident') return;
       const inc = this.s.incidents[tr.task.id];
       tr.status = 'On Scene'; tr.task.stage = 'onscene';
+      if (inc && inc.onSceneT == null) inc.onSceneT = this.s.t;
       if (inc && inc.status !== 'Restored' && inc.status !== 'Closed') { inc.status = 'On Scene'; inc.timeline.push({ t: this.s.t, text: `Truck ${truckId} on scene` }); }
       const end = this.say([[truckId, `Sparks Control, ${truckId} on location, ${this.locOf(tr.pos)}.`], ['C', `Copy ${truckId}, on location at ${this.hhmm()}.`]], { unit: truckId });
       if (inc && (inc.status === 'Restored' || inc.status === 'Closed')) { this.schedule(end + 10, 'crew', { truck: truckId, tok: tr.tok, step: 'alreadyOn' }); return; }
@@ -1286,6 +1287,7 @@ export class Engine {
     let out = 0;
     for (const lid of Object.keys(this.s.loadOutSince)) if (!this.s.planned[lid]) out += this.T.loads[lid].customers;
     this.s.metrics.cmi += out * dt / 60;
+    for (const inc of Object.values(this.s.incidents)) if (inc.custOut && inc.status !== 'Closed' && inc.status !== 'Restored') inc.cmi = (inc.cmi ?? 0) + inc.custOut * dt / 60;
     if (this.s.t - this.lastReadings >= 2) { this.computeReadings(); this.lastReadings = this.s.t; }
     for (const inc of this.openIncidents()) this.updateIncident(inc);
     // auto-assist dispatch
@@ -1379,6 +1381,65 @@ export class Engine {
   }
 
   devAmps(id: string) { return (this.devKw[id] ?? 0) / (1.732 * 12.47 * 0.95); }
+
+  /** Exercise-period reliability indices (IEEE 1366 style, simplified: every interruption counts as sustained). */
+  reliability() {
+    const N = this.T.totalCustomers, m = this.s.metrics;
+    const incs = Object.values(this.s.incidents).filter(i => i.kind === 'outage' || i.kind === 'single');
+    const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+    const resp = incs.filter(i => i.onSceneT != null).map(i => i.onSceneT! - i.t);
+    const disp = incs.filter(i => i.firstDispatchT != null).map(i => i.firstDispatchT! - i.t);
+    const rest = incs.filter(i => i.restoredT != null && i.kind === 'outage').map(i => i.restoredT! - i.t);
+    return {
+      N, ci: m.ci, cmi: m.cmi, mom: m.momentary,
+      saidi: m.cmi / N, saifi: m.ci / N, caidi: m.ci ? m.cmi / m.ci : 0, maifi: m.momentary / N,
+      avgDispatch: avg(disp), avgResp: avg(resp), avgRestore: avg(rest),
+      worstResp: resp.length ? Math.max(...resp) : null, incidents: incs.length,
+    };
+  }
+
+  // ── Crew roster (operator-managed) ─────────────────────────
+  rosterAdd(id: string, crew: string, type: string, quiet = false): string | null {
+    id = String(id).trim();
+    if (!/^\d{2,4}$/.test(id)) return 'Truck number must be 2–4 digits';
+    if (this.s.trucks[id]) return `Truck ${id} is already on the roster`;
+    const tr = this.addTruck(id, SERVICE_CENTER);
+    tr.crew = crew.trim() || 'Crew'; tr.type = type.trim() || 'Bucket';
+    if (!quiet) {
+      this.say([[id, `Sparks Control, ${id} on duty at the service center, ${tr.type.toLowerCase()}, ready for assignment.`], ['C', `Copy ${id}.`]], { unit: id });
+      this.log('DISPATCH', 'good', `Truck ${id} (${tr.crew}) added to roster`);
+      this.decision(`Added Truck ${id} to roster`);
+    }
+    this.schedule(60 + this.rand() * 60, 'woPick', { truck: id, tok: tr.tok });
+    this.bump();
+    return null;
+  }
+  rosterEdit(id: string, crew: string, type: string): string | null {
+    const tr = this.s.trucks[id];
+    if (!tr) return `Truck ${id} not on roster`;
+    if (crew.trim()) tr.crew = crew.trim();
+    if (type.trim()) tr.type = type.trim();
+    this.bump();
+    return null;
+  }
+  rosterRemove(id: string): string | null {
+    const tr = this.s.trucks[id];
+    if (!tr) return `Truck ${id} not on roster`;
+    if (tr.clearance) return `Truck ${id} holds clearance ${tr.clearance} — release it first`;
+    if (tr.sw) return `Truck ${id} is in the middle of switching`;
+    if (tr.task?.kind === 'planned') return `Truck ${id} is assigned to planned job ${tr.task.id}`;
+    if (tr.task?.kind === 'incident') {
+      const inc = this.s.incidents[tr.task.id];
+      if (inc && inc.crew === id) { inc.crew = null; if (inc.status !== 'Restored' && inc.status !== 'Closed') inc.status = 'New'; inc.timeline.push({ t: this.s.t, text: `Truck ${id} removed from roster — incident unassigned` }); }
+    }
+    if (tr.task?.kind === 'workorder') { const wo = this.s.workorders[tr.task.id]; if (wo) { wo.status = 'Open'; wo.truck = undefined; } }
+    for (const r of this.s.requests) if (r.truck === id && r.status === 'Pending') r.status = 'Denied';
+    delete this.s.trucks[id];
+    this.log('DISPATCH', 'warn', `Truck ${id} removed from roster (off duty)`);
+    this.decision(`Removed Truck ${id} from roster`);
+    this.bump();
+    return null;
+  }
 
   customersOut() { let n = 0; for (const lid of Object.keys(this.s.loadOutSince)) n += this.T.loads[lid].customers; return n; }
 

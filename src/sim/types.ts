@@ -111,6 +111,7 @@ export interface Incident {
   timeline: { t: number; text: string }[]; custOut: number; peak: number;
   stage: 'Assess' | 'Isolate' | 'Repair' | 'Restore' | 'Verify' | 'Done';
   isolation: string[]; firstDispatchT: number | null; restoredT: number | null; closedT: number | null;
+  onSceneT?: number | null; cmi?: number;
 }
 
 export interface Call {

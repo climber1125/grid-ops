@@ -1,22 +1,25 @@
 // MONITOR 5 — Dispatch / Crew board, and SCADA alarm summary + event logs
 import { useState } from 'react';
 import { useCtx, age } from './ctx';
+import { RosterPanel, ReliabilityPanel } from './Fleet';
 
-export function CrewBoard() {
+export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'roster' | 'rel' }) {
   const { e, sel, setSel, flyTo } = useCtx();
-  const [tab, setTab] = useState<'units' | 'wo'>('units');
+  const [tab, setTab] = useState<'units' | 'wo' | 'roster' | 'rel'>(initial);
   const trucks = Object.values(e.s.trucks).sort((a, b) => a.id.localeCompare(b.id));
   const wos = Object.values(e.s.workorders).filter(w => w.status !== 'Done');
   return (
     <div className="panel">
       <div className="ph">
-        <span className="mon">M5</span><span className="ttl">Dispatch / Field Units</span>
+        <span className="mon">M5</span><span className="ttl">Field Units</span>
         <div className="tabs" style={{ marginLeft: 6 }}>
           <button className={`tab ${tab === 'units' ? 'on' : ''}`} onClick={() => setTab('units')}>Units<span className="badge">{trucks.length}</span></button>
           <button className={`tab ${tab === 'wo' ? 'on' : ''}`} onClick={() => setTab('wo')}>Work orders<span className="badge">{wos.length}</span></button>
+          <button className={`tab ${tab === 'roster' ? 'on' : ''}`} onClick={() => setTab('roster')}>Roster</button>
+          <button className={`tab ${tab === 'rel' ? 'on' : ''}`} onClick={() => setTab('rel')}>Reliability</button>
         </div>
         <span className="sp" />
-        <span className="dim" style={{ fontSize: 10 }}>Available {trucks.filter(t => t.status === 'Available').length} · Committed {trucks.filter(t => t.status !== 'Available').length}</span>
+        <span className="dim avail" style={{ fontSize: 10, whiteSpace: 'nowrap' }}>Avail {trucks.filter(t => t.status === 'Available').length}/{trucks.length}</span>
       </div>
       <div className="pb">
         {tab === 'units' ? (
@@ -41,7 +44,7 @@ export function CrewBoard() {
               })}
             </tbody>
           </table>
-        ) : (
+        ) : tab === 'roster' ? <RosterPanel /> : tab === 'rel' ? <ReliabilityPanel /> : (
           <table className="grid">
             <thead><tr><th>WO</th><th>Type</th><th>Location</th><th>Est.</th><th>Status</th><th>Unit</th></tr></thead>
             <tbody>{wos.map(w => <tr key={w.id} className="row" onClick={() => flyTo(w.pos, 16)}><td className="mono">{w.id}</td><td>{w.type}</td><td>{w.loc}</td><td className="num">{Math.round(w.dur / 60)}m</td><td>{w.status}</td><td className="mono">{w.truck ?? '—'}</td></tr>)}</tbody>

@@ -120,9 +120,14 @@ export function AarModal({ onClose, onNew }: { onClose(): void; onNew(): void })
             <div className="metric"><div className="k">Exercise time</div><div className="v">{age(e.s.t)}</div></div>
             <div className="metric"><div className="k">Cust. interrupted</div><div className="v">{m.ci.toLocaleString()}</div></div>
             <div className="metric"><div className="k">Cust.-minutes</div><div className="v">{Math.round(m.cmi).toLocaleString()}</div></div>
-            <div className="metric"><div className="k">SAIDI (exercise)</div><div className="v">{(m.cmi / e.T.totalCustomers).toFixed(2)}m</div></div>
             <div className="metric"><div className="k">Avg dispatch</div><div className="v">{dts.length ? age(avgDisp) : '—'}</div></div>
+            <div className="metric"><div className="k">Momentary cust.</div><div className="v">{m.momentary.toLocaleString()}</div></div>
             <div className="metric"><div className="k">Violations</div><div className="v" style={{ color: m.violations.length ? 'var(--red)' : 'var(--green)' }}>{m.violations.length}</div></div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6, marginTop: 6 }}>
+            {(() => { const r = e.reliability(); const mm = (x: number | null) => (x == null ? '—' : `${(x / 60).toFixed(1)}m`); return ([
+              ['SAIDI', `${r.saidi.toFixed(2)}m`], ['SAIFI', r.saifi.toFixed(3)], ['CAIDI', `${r.caidi.toFixed(1)}m`], ['MAIFI', r.maifi.toFixed(3)], ['Avg response', mm(r.avgResp)], ['Avg restore', mm(r.avgRestore)],
+            ] as [string, string][]).map(([k, v]) => <div key={k} className="metric"><div className="k">{k}</div><div className="v">{v}</div></div>); })()}
           </div>
           <div className="aar-grid" style={{ marginTop: 10 }}>
             <div>
@@ -132,8 +137,8 @@ export function AarModal({ onClose, onNew }: { onClose(): void; onNew(): void })
               <div className="sec-t">Safety</div>
               {m.violations.length ? m.violations.map((v, i) => <div key={i} className="c-red" style={{ fontSize: 11 }}><span className="mono">{e.hhmm(v.t)}</span> {v.text}</div>) : <div className="c-green">No safety violations recorded.</div>}
               <div className="sec-t">Incidents</div>
-              <table className="grid"><thead><tr><th>ID</th><th>Device</th><th>Peak</th><th>Dispatch</th><th>Restored</th><th>Status</th></tr></thead><tbody>
-                {incs.map(i => <tr key={i.id}><td className="mono">{i.id}</td><td className="mono">{i.predDev}</td><td className="num">{i.peak}</td><td className="num">{i.firstDispatchT !== null ? age(i.firstDispatchT - i.t) : '—'}</td><td className="num">{i.restoredT !== null ? age(i.restoredT - i.t) : '—'}</td><td>{i.status}</td></tr>)}
+              <table className="grid"><thead><tr><th>ID</th><th>Device</th><th>Peak</th><th>Dispatch</th><th>Response</th><th>Restored</th><th>Cust-min</th><th>Status</th></tr></thead><tbody>
+                {incs.map(i => <tr key={i.id}><td className="mono">{i.id}</td><td className="mono">{i.predDev}</td><td className="num">{i.peak}</td><td className="num">{i.firstDispatchT !== null ? age(i.firstDispatchT - i.t) : '—'}</td><td className="num">{i.onSceneT != null ? age(i.onSceneT - i.t) : '—'}</td><td className="num">{i.restoredT !== null ? age(i.restoredT - i.t) : '—'}</td><td className="num">{Math.round(i.cmi ?? 0).toLocaleString()}</td><td>{i.status}</td></tr>)}
               </tbody></table>
             </div>
             <div>
