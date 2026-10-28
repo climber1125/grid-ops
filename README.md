@@ -113,4 +113,4 @@ src/ui/             ← operator workstation (React)
 - **More trucks:** add to `TRUCK_ROSTER` (engine.ts) and `addTruck()` in a scenario.
 - **More network:** add a `FeederSpec` / `TieSpec` in `topology.ts`; laterals, transformers and customers generate deterministically.
 - **New scenario:** add an entry to `SCENARIOS` with `setup`, scripted `event`s, `periodic` grading, and `isDone`.
-- **Multi-monitor:** the panels are independent components; a next step is a `?monitor=scada` route with BroadcastChannel sync so each monitor can run full-screen on its own display.
+- **Multi-monitor:** built in. **Monitors → Spread across all screens** (Chrome/Edge) or open any view in its own window. One window runs the simulation, the rest mirror it and send actions to it; if the main window closes, a linked window takes over. Views: `?mon=all|gis|scada|sw|ops|oms|radio|crew|alarms`.
