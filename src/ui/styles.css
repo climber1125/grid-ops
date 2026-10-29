@@ -424,3 +424,6 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .coach .ch { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .coach .cb { font-size: 12px; line-height: 1.5; }
 .coach .cf { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+.chips { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; padding: 4px 8px; border-top: 1px solid var(--line); }
+.btn.chip { color: var(--cyan); border-color: var(--cyan); }
+@media print { .topbar, .ws > *:not(.modal-bg) { display: none !important; } .modal-bg { position: static; background: #fff; } .modal.cheat { color: #000; background: #fff; } }

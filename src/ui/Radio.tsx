@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCtx } from './ctx';
 import type { Request } from '../sim/types';
-import { SayOr, PttBar, TypeTx } from './VoiceUi';
+import { SayOr, PttBar, TypeTx, PhraseChips, CheatSheet } from './VoiceUi';
 
 export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setTalkBack }: {
   keyed: string | null; voiceOn: boolean; setVoiceOn(v: boolean): void; audioOn: boolean; talkBack: boolean; setTalkBack(v: boolean): void;
@@ -11,6 +11,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
   const [unit, setUnit] = useState('');
   const [wf, setWf] = useState('');
   const [typing, setTyping] = useState(false);
+  const [sheet, setSheet] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const msgs = e.s.radio.slice(-160);
@@ -89,6 +90,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
           </div>
         ))}
       </div>
+      {talkBack && unit && <PhraseChips unit={unit} />}
       {talkBack && <PttBar />}
       {talkBack && (typing || !ptt.supported) && <TypeTx />}
       <div className="unitbar">
@@ -109,8 +111,10 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
           </>}
         </>}
         <span style={{ flex: 1 }} />
+        {talkBack && <button className="btn sm" onClick={() => setSheet(true)}>Phrases</button>}
         {talkBack && ptt.supported && <button className="btn sm" onClick={() => setTyping(!typing)}>{typing ? 'Hide keyboard' : 'Type instead'}</button>}
       </div>
+      {sheet && <CheatSheet onClose={() => setSheet(false)} />}
     </div>
   );
 }
