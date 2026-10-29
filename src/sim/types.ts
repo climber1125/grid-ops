@@ -62,13 +62,13 @@ export interface Topology {
 // ── Dynamic state ────────────────────────────────────────────
 
 export interface DevState {
-  open: boolean; lockout: boolean; tags: string[]; comm: boolean; ops: number;
+  open: boolean; lockout: boolean; tags: string[]; comm: boolean; ops: number; nonReclose?: boolean;
   tripFault?: string; lastT?: number;
 }
 
 export type Cause =
   | 'animal' | 'tree_lateral' | 'xfmr_failure' | 'tree_primary' | 'insulator'
-  | 'vehicle' | 'lightning' | 'temporary' | 'planned';
+  | 'vehicle' | 'lightning' | 'temporary' | 'planned' | 'contact';
 
 export interface Fault {
   id: string; el: string; onLoad: boolean; cause: Cause; permanent: boolean;
@@ -126,11 +126,11 @@ export interface Alarm {
 
 export interface Soe { t: number; text: string; dev?: string; kind: 'trip' | 'close' | 'open' | 'alarm' | 'info' | 'reclose'; }
 
-export interface RadioMsg { id: number; t: number; from: string; to: string; text: string; kind: 'routine' | 'switching' | 'emergency' | 'system'; unit: string; }
+export interface RadioMsg { id: number; t: number; from: string; to: string; text: string; kind: 'routine' | 'switching' | 'emergency' | 'system' | 'operator'; unit: string; }
 
 export interface LogEntry { id: number; t: number; cat: 'SCADA' | 'OMS' | 'DISPATCH' | 'RADIO' | 'SYSTEM' | 'SAFETY' | 'SCENARIO'; level: 'info' | 'warn' | 'alarm' | 'good'; text: string; }
 
-export type ReqType = 'close' | 'clearance' | 'release' | 'pressure';
+export type ReqType = 'close' | 'clearance' | 'release' | 'pressure' | 'hotline';
 export interface Request {
   id: string; t: number; type: ReqType; truck: string; inc?: string; dev?: string; devs?: string[];
   text: string; status: 'Pending' | 'Approved' | 'Denied' | 'Done';
@@ -185,6 +185,7 @@ export interface SimState {
   metrics: { cmi: number; ci: number; momentary: number; violations: Violation[]; decisions: Decision[]; dispatchTimes: number[]; contacts: number; };
   scen: { id: string; obj: Record<string, ObjState>; flags: Record<string, any>; done: boolean; startT: number; aarShown: boolean };
   autoAssist: boolean;
+  voiceRadio?: boolean; radioCtx?: { unit: string; t: number } | null;
   weather: { text: string; level: 'normal' | 'watch' | 'warning' };
   loopSince: number | null;
   ids: Record<string, number>;

@@ -16,6 +16,7 @@ import { dist, bearing, lerp } from './geo';
 import { route, nearestName, SERVICE_CENTER } from './roads';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
+import { parseRadio } from './voice';
 
 export const START_EPOCH = new Date(2026, 9, 28, 14, 30, 0).getTime();
 const CURVE = [0.52, 0.48, 0.46, 0.45, 0.46, 0.52, 0.62, 0.72, 0.78, 0.82, 0.86, 0.9, 0.93, 0.96, 0.98, 1.0, 1.0, 0.99, 0.95, 0.88, 0.8, 0.72, 0.64, 0.57];
@@ -136,6 +137,7 @@ export class Engine {
   }
 
   // ── Session controls (routed as actions so linked windows can use them) ──
+  setTutStep(n: number) { this.s.scen.flags.tutStep = n; this.bump(); }
   setSpeed(x: number) { this.s.speed = x; this.s.paused = false; this.bump(); }
   setPaused(p: boolean) { this.s.paused = p; this.bump(); }
   setAutoAssist(on: boolean) { this.s.autoAssist = on; this.decision(`Auto-assist ${on ? 'ON' : 'OFF'}`); this.bump(); }
@@ -184,8 +186,12 @@ export class Engine {
 
   // ── Radio ──────────────────────────────────────────────────
   speaker(sp: Speaker) { return sp === 'C' ? CONTROL : sp === '249' ? 'SUPERVISOR 249' : `TRUCK ${sp}`; }
+  /** True while handling the operator's own voice transmission: Control lines are not generated (the operator said them). */
+  voiced = false;
   say(lines: [Speaker, string][], opts: { kind?: 'routine' | 'switching' | 'emergency'; start?: number; unit?: string } = {}): number {
     let at = opts.start ?? 0;
+    if (this.voiced) lines = lines.filter(l => l[0] !== 'C');
+    else if (this.s.voiceRadio) lines = lines.filter(l => l[0] !== 'C' || !/^(Copy|That's correct)/.test(l[1])); // operator gives their own acknowledgments
     const unit = opts.unit ?? (lines.find(l => l[0] !== 'C')?.[0] ?? '');
     for (const [sp, text] of lines) {
       this.schedule(at, 'radio', { sp, text, kind: opts.kind ?? 'routine', unit });
@@ -193,7 +199,7 @@ export class Engine {
     }
     return at;
   }
-  private radioNow(sp: Speaker, text: string, kind: 'routine' | 'switching' | 'emergency' | 'system', unit: string) {
+  private radioNow(sp: Speaker, text: string, kind: 'routine' | 'switching' | 'emergency' | 'system' | 'operator', unit: string) {
     if (sp !== 'C' && sp !== '249' && this.s.trucks[sp] && !this.s.trucks[sp].comm) return; // no TX from a unit without comms
     this.s.radio.push({ id: ++this.s.seq, t: this.s.t, from: this.speaker(sp), to: '', text, kind, unit });
     if (this.s.radio.length > 400) this.s.radio.splice(0, this.s.radio.length - 400);
@@ -292,6 +298,12 @@ export class Engine {
         this.soe(`${prot} TRIP — CLOSE INTO FAULT — LOCKOUT`, 'trip', prot);
         this.alarm(`lockout:${prot}`, `${prot} ${d.feeder} LOCKOUT (close into fault)`, 1, prot);
         this.scadaIncident(prot);
+      } else if (st.nonReclose) {
+        st.lockout = true;
+        this.soe(`${prot} TRIP — NON-RECLOSE (HOT-LINE TAG) — LOCKOUT`, 'trip', prot);
+        this.alarm(`lockout:${prot}`, `${prot} ${d.feeder} LOCKOUT — non-reclose trip, ${this.T.devCust[prot]} customers`, 1, prot);
+        this.scadaIncident(prot);
+        this.scen.event?.(this, 'nrTrip', { dev: prot, fault: f.id });
       } else {
         this.soe(`${prot} TRIP — PH-B 51/50 — SHOT 0`, 'trip', prot);
         this.alarm(`trip:${prot}`, `${prot} ${d.feeder} TRIP — reclosing in progress`, 2, prot);
@@ -314,6 +326,7 @@ export class Engine {
       this.refresh();
       return;
     }
+    this.scen.event?.(this, 'recloseOnFault', { dev, fault: fid, shot });
     this.soe(`${dev} TRIP — SHOT ${shot}`, 'trip', dev, this.s.t + 0.2);
     st.ops++;
     if (shot < 2) { this.schedule(15, 'reclose', { dev, shot: shot + 1, fault: fid }); return; }
@@ -621,7 +634,9 @@ export class Engine {
     const calls = inc.calls.length;
     const hint = inc.calls.map(c => this.s.calls[c]?.remark).find(r => r && /boom|flash|limb|wire|car/i.test(r));
     const detail = `${this.incidentPhrase(inc)}. ${inc.custOut ? `${inc.custOut} customer${inc.custOut === 1 ? '' : 's'} out` : ''}${calls ? `, ${calls} call${calls === 1 ? '' : 's'}` : ''}.${hint ? ` Caller reports: ${hint.toLowerCase()}.` : ''}`;
-    const end = this.say([
+    const end = this.voiced
+      ? this.say([[truckId, `${truckId} copies${prevWo ? `, breaking off ${prevWo}` : ''}, responding to ${inc.id}${this.dev(inc.predDev)?.loc ? `, ${this.dev(inc.predDev).loc}` : ''}. En route.`]], { kind: inc.priority === 1 ? 'emergency' : 'routine', unit: truckId }) + 2
+      : this.say([
       ['C', `Truck ${truckId}, Sparks Control.`],
       [truckId, `${truckId}, go ahead.`],
       ['C', `${truckId}, respond to ${detail} ${inc.id}.`],
@@ -741,6 +756,13 @@ export class Engine {
     } else if (r.type === 'release') {
       const err = this.releaseClearance(r.devs?.[0] ?? '', false, r);
       if (err) return err;
+    } else if (r.type === 'hotline') {
+      const st = this.s.dev[r.dev!];
+      r.status = 'Approved';
+      if (st.nonReclose) this.decision(`Placed hot-line tag (non-reclose) on ${r.dev} and released ${r.truck} for energized work`, true);
+      else { this.decision(`Released ${r.truck} for energized work but ${r.dev} reclosing is still ENABLED`, false); this.log('SAFETY', 'alarm', `${r.truck} told hot-line tag is on, but ${r.dev} non-reclose is OFF`); }
+      this.say([['C', `${r.truck}, Sparks Control. Hot-line tag is on ${r.dev}, non-reclose, at ${this.hhmm()}. You're clear for energized work.`], [r.truck, `${r.truck} copies, hot-line tag on ${r.dev}. Starting energized work.`]], { unit: r.truck });
+      this.scen.event?.(this, 'hotlineGranted', { req: r.id, nr: !!st.nonReclose });
     } else if (r.type === 'pressure') {
       r.status = 'Approved';
       this.decision('Agreed to supervisor request to restore section under clearance', false);
@@ -765,6 +787,10 @@ export class Engine {
       this.say([['C', `${r.truck}, Sparks Control. Unable to issue clearance at this time, stand by.`], [r.truck, `${r.truck} copies, standing by.`]], { unit: r.truck });
       if (tr) { tr.waitIso = tr.waitIso ?? null; this.schedule(180, 'crew', { truck: r.truck, tok: tr.tok, step: 'reRequestClr', req: r.id }); }
       this.decision(`Deferred clearance request from ${r.truck}`);
+    } else if (r.type === 'hotline') {
+      this.say([['C', `${r.truck}, Sparks Control. Stand by on the hot-line tag.`], [r.truck, `${r.truck} copies, standing by.`]], { unit: r.truck });
+      this.decision(`Held ${r.truck} hot-line tag request`);
+      if (tr) this.schedule(240, 'crew', { truck: r.truck, tok: tr.tok, step: 'reHotline', dev: r.dev });
     } else if (r.type === 'pressure') {
       this.say([['C', `249, Sparks Control. Negative. That section is under clearance to Truck 235 and we don't have contact with the crew. It stays de-energized until 235 releases it.`], ['249', '249 copies, understood.']], { unit: '249' });
       this.decision('Refused to energize section under an active clearance with crew out of contact', true);
@@ -884,7 +910,7 @@ export class Engine {
     tr.sw = { order: oid, idx: o.cur }; tr.tok++; tr.route = null; tr.status = 'Switching';
     st.status = 'Issued'; st.note = undefined;
     const act = st.action === 'open' ? 'Open' : 'Close';
-    const end = this.say([
+    const end = this.voiced ? 2.5 : this.say([
       ['C', `Truck ${tr.id}, Sparks Control, switching.`],
       [tr.id, `${tr.id}, go ahead with switching.`],
       ['C', `Switching order ${oid}, step ${o.cur + 1}: ${act} ${devWord(d)} ${st.dev}${st.loop ? ', loop close,' : ''} at ${d.loc}. Repeat.`],
@@ -1143,6 +1169,12 @@ export class Engine {
         break;
       }
       case 'raiseClose': this.request('close', id, `Close ${d.dev} (repairs complete)`, { dev: d.dev, inc: inc?.id }); break;
+      case 'reHotline': {
+        if (this.s.requests.some(r => r.type === 'hotline' && r.truck === id && r.status !== 'Denied')) break;
+        this.say([[id, `Sparks Control, ${id}. Still standing by for a hot-line tag on ${d.dev}.`]], { unit: id });
+        this.request('hotline', id, `Hot-line tag (non-reclose) on ${d.dev} for energized work`, { dev: d.dev });
+        break;
+      }
       case 'reRequestClr': {
         if (tr.clearance) return;
         const old = this.s.requests.find(x => x.id === d.req);
@@ -1381,6 +1413,176 @@ export class Engine {
   }
 
   devAmps(id: string) { return (this.devKw[id] ?? 0) / (1.732 * 12.47 * 0.95); }
+
+  // ── Operator lockout / hot-line tag ────────────────────────
+  /** Open (if closed) and operator-lock a breaker/recloser so nothing can close it until the lockout is removed. */
+  lockoutDevice(id: string): string | null {
+    const d = this.dev(id), st = this.s.dev[id];
+    if (!d || !st) return `Unknown device ${id}`;
+    if (!['breaker', 'recloser'].includes(d.type)) return 'Operator lockout applies to breakers and reclosers';
+    if (st.tags.includes('OPR-LO')) return `${id} is already locked out`;
+    if (!st.open) {
+      const r = this.operate(id, 'open', { by: 'SCADA' });
+      if (!r.ok) return r.reason ?? 'Open failed';
+    }
+    st.lockout = true;
+    st.tags.push('OPR-LO');
+    this.soe(`${id} OPERATOR LOCKOUT — DO NOT CLOSE TAG APPLIED`, 'open', id);
+    this.log('SAFETY', 'warn', `${id} (${d.feeder}) opened and locked out by operator`);
+    this.decision(`Opened and locked out ${id} (${d.feeder})`);
+    this.scen.event?.(this, 'lockout', { dev: id });
+    this.bump();
+    return null;
+  }
+  releaseLockout(id: string): string | null {
+    const st = this.s.dev[id];
+    if (!st?.tags.includes('OPR-LO')) return `${id} is not operator-locked`;
+    st.tags = st.tags.filter(t => t !== 'OPR-LO');
+    this.soe(`${id} OPERATOR LOCKOUT REMOVED (device remains open)`, 'info', id);
+    this.decision(`Removed operator lockout on ${id}`);
+    this.bump();
+    return null;
+  }
+  /** Hot-line tag: block automatic reclosing so a fault trips straight to lockout. */
+  setNonReclose(id: string, on: boolean): string | null {
+    const d = this.dev(id), st = this.s.dev[id];
+    if (!d || !st) return `Unknown device ${id}`;
+    if (!['breaker', 'recloser'].includes(d.type)) return 'Non-reclose applies to breakers and reclosers';
+    if (d.scada && !st.comm) return `${id} SCADA communication failure — cannot change reclosing`;
+    st.nonReclose = on;
+    this.soe(`${id} ${on ? 'HOT-LINE TAG ON — RECLOSING BLOCKED' : 'HOT-LINE TAG OFF — RECLOSING ENABLED'}`, 'info', id);
+    this.decision(`${on ? 'Placed' : 'Removed'} hot-line tag (non-reclose) on ${id}`);
+    this.scen.event?.(this, 'nonReclose', { dev: id, on });
+    this.bump();
+    return null;
+  }
+
+  // ── Emergency handling ─────────────────────────────────────
+  notify911(): string | null {
+    this.log('SAFETY', 'alarm', '911 called by Sparks Control — EMS requested to the reported location');
+    this.decision('Called 911 / EMS', true);
+    this.scen.event?.(this, 'ems', {});
+    this.bump();
+    return null;
+  }
+  declareEmergency(): string | null {
+    if (!this.voiced) this.say([['C', 'All units, Sparks Control. Emergency traffic only on OPS-1 until further notice. Hold all routine traffic.']], { kind: 'emergency' });
+    this.log('RADIO', 'alarm', 'Emergency traffic declared on OPS-1');
+    this.decision('Declared emergency traffic', true);
+    this.s.scen.flags.emergencyTraffic = true;
+    this.scen.event?.(this, 'emergencyTraffic', {});
+    this.bump();
+    return null;
+  }
+  /** Tell the crew at an emergency that the line is dead (rescue scenario). */
+  confirmDead(): string | null {
+    this.scen.event?.(this, 'confirmDead', {});
+    this.bump();
+    return null;
+  }
+  setVoiceRadio(on: boolean) { this.s.voiceRadio = on; this.bump(); }
+
+  // ── Operator voice transmissions ───────────────────────────
+  /** The operator keyed up and said `text`. Logs it, works out who was addressed and what was asked, and acts. */
+  voiceTx(text: string): string | null {
+    const raw = text.trim();
+    if (!raw) return null;
+    this.radioNow('C', raw.charAt(0).toUpperCase() + raw.slice(1), 'operator', '');
+    const units = Object.keys(this.s.trucks);
+    const p = parseRadio(raw, units, id => !!this.T.els[id]);
+    const n = p.norm;
+    const has = (re: RegExp) => re.test(n);
+    const ctx = this.s.radioCtx && this.s.t - this.s.radioCtx.t < 120 ? this.s.radioCtx.unit : null;
+    const pend = this.s.requests.filter(r => r.status === 'Pending');
+    const repeatSteps = Object.values(this.s.orders).filter(o => o.status === 'Active' && o.steps[o.cur]?.status === 'RepeatBack');
+    let unit = p.units.find(u => u !== '249') ?? (p.units.includes('249') ? '249' : null);
+    if (!unit) unit = ctx;
+    if (!unit && repeatSteps.length === 1) unit = repeatSteps[0].steps[repeatSteps[0].cur].exec;
+    if (!unit && pend.length === 1) unit = pend[0].truck;
+    const reply = (u: string, msg: string, kind: 'routine' | 'switching' | 'emergency' = 'routine') => this.say([[u, msg]], { unit: u, kind, start: 1.5 });
+    const done = (r: string | null) => { if (unit) this.s.radioCtx = { unit, t: this.s.t }; this.bump(); return r; };
+    this.voiced = true;
+    try {
+      // 1. Emergency traffic (no unit needed)
+      if (has(/\b(emergency traffic|all units|clear the (channel|air|frequency)|hold all (routine )?traffic)\b/)) { this.declareEmergency(); if (!has(/\b(dead|de ?energi[sz]ed|locked out)\b/)) return done(null); }
+      // 2. Rescue: line is dead
+      if (this.s.scen.flags.emT !== undefined && !this.s.scen.flags.confT && has(/\b(dead|de ?energi[sz]ed|locked out|line is (open|out|clear))\b/)) { this.confirmDead(); return done(null); }
+      if (!unit) { this.log('RADIO', 'warn', 'Transmission not addressed to a unit — nobody answered. Start with the truck number.'); return done('No unit addressed — start with the truck number, e.g. "Truck 233, Sparks Control"'); }
+      if (unit !== '249' && !this.s.trucks[unit]) return done(`Truck ${unit} is not on the roster`);
+      const tr = this.s.trucks[unit];
+      if (tr && !tr.comm) { this.schedule(14, 'noResponse', { truck: unit }); this.s.metrics.contacts++; this.s.scen.flags.contactAttempts = (this.s.scen.flags.contactAttempts ?? 0) + 1; this.decision(`Radio call to ${unit} — no response`); return done(null); }
+      const myReq = (type: string) => pend.find(r => r.truck === unit && r.type === type);
+      const yes = has(/\b(correct|affirm(ative)?|perform|execute|proceed|that is right|thats right|that's right)\b/) && !has(/\b(in ?correct|not correct)\b/);
+      const no = has(/\b(negative|incorrect|not correct|wrong|say again|repeat)\b/);
+      // 3. Repeat-back confirmation
+      const rb = repeatSteps.find(o => o.steps[o.cur].exec === unit);
+      if (rb && (yes || no)) return done(this.confirmRepeat(rb.id, yes && !no));
+      // 4. Supervisor pressure
+      const pr = pend.find(r => r.type === 'pressure');
+      if (unit === '249' && pr) { if (no || has(/\b(no|stays|hold|cannot|can't|not going)\b/)) return done(this.deny(pr.id)); if (has(/\b(ok|okay|will close|closing|go ahead)\b/)) return done(this.approve(pr.id)); }
+      // 5. Pending requests from this unit
+      const hl = myReq('hotline');
+      if (hl && has(/\b(hot ?line|non ?reclose|tag (is )?(on|placed|hung|applied)|clear (for|to start) (energized )?work)\b/)) return done(this.approve(hl.id));
+      if (hl && has(/\b(stand ?by|hold|not yet)\b/)) return done(this.deny(hl.id));
+      const rel = myReq('release');
+      if (rel && has(/\b(releas|copy|acknowledg)/)) return done(this.approve(rel.id));
+      const clr = myReq('clearance');
+      if (clr && has(/\b(clearance|you have the (line|section)|issued|tagged)\b/) && !has(/\b(unable|stand ?by|hold)\b/)) return done(this.approve(clr.id));
+      if (clr && has(/\b(unable|stand ?by|hold)\b/)) return done(this.deny(clr.id));
+      const cl = myReq('close');
+      if (cl && has(/\b(permission granted|granted|go ahead|ok(ay)? to (close|refuse|re fuse)|clear to close|close it|you can close|you may close)\b/)) return done(this.approve(cl.id));
+      if (cl && has(/\b(hold|stand ?by|not yet|do not close|don't close)\b/)) return done(this.deny(cl.id));
+      // 6. Switching instruction
+      const act = has(/\bopen\b/) ? 'open' : has(/\bclose\b/) ? 'close' : null;
+      if (act && p.devs.length && unit !== '249') {
+        const dev = p.devs.find(x => !x.startsWith('CB') || p.devs.length === 1) ?? p.devs[0];
+        const ord = Object.values(this.s.orders).find(o => o.status === 'Active' && ['Pending', 'Failed'].includes(o.steps[o.cur]?.status) && o.steps[o.cur].exec === unit);
+        if (!ord) {
+          this.decision(`Gave ${unit} a verbal switching instruction (${act} ${dev}) with no active switching order`, false);
+          reply(unit, `Sparks Control, ${unit}. I don't show ${act === 'open' ? 'opening' : 'closing'} ${dev} on an active switching order. Give me the order and step number before we operate.`, 'switching');
+          return done(null);
+        }
+        const st = ord.steps[ord.cur];
+        if (st.dev !== dev || st.action !== act) {
+          reply(unit, `Sparks Control, ${unit}. That doesn't match ${ord.id} step ${ord.cur + 1}. I show step ${ord.cur + 1} as ${st.action} ${st.dev}. Please verify.`, 'switching');
+          this.decision(`Switching instruction to ${unit} did not match ${ord.id} step ${ord.cur + 1}`, false);
+          return done(null);
+        }
+        return done(this.issueStep(ord.id));
+      }
+      // 7. Welfare check on another unit
+      const other = p.units.find(u => u !== unit && u !== '249');
+      if (other && has(/\b(check on|welfare|make contact|go find|check the crew)\b/)) return done(this.welfareCheck(unit, other));
+      // 8. Recall
+      if (has(/\b(return|head back|go back|come back|come in)\b/) && has(/\b(shop|yard|service center|barn|base|home)\b/)) return done(this.recall(unit));
+      // 9. Dispatch to an incident
+      const wantsDispatch = p.incs.length > 0 || has(/\b(respond|go to|head (over )?to|en route|check (on|out)|investigate|take (the|that)|go check|go look|outage|lockout|trouble)\b/);
+      if (wantsDispatch && unit !== '249') {
+        const open = this.openIncidents().filter(i => i.status !== 'Restored');
+        let inc = p.incs.map(id => this.s.incidents[id]).find(Boolean);
+        if (!inc && p.devs.length) inc = open.find(i => p.devs.includes(i.predDev) || (i.truthDev && p.devs.includes(i.truthDev)));
+        if (!inc) {
+          const words = n.split(' ').filter(w => w.length > 3);
+          inc = open.find(i => { const loc = (i.kind === 'single' ? this.T.loads[i.loadId!].addr : this.dev(i.predDev).loc).toLowerCase(); return words.some(w => loc.includes(w)); });
+        }
+        if (!inc) { const un = open.filter(i => !i.crew).sort((a, b) => a.priority - b.priority || a.t - b.t); if (un.length === 1 || (un.length && has(/\b(highest|priority|p1|worst|biggest)\b/))) inc = un[0]; }
+        if (!inc) { reply(unit, `Sparks Control, ${unit}. Say again the incident number or location.`); return done(null); }
+        const err = this.dispatch(unit, inc.id);
+        if (err) reply(unit, `Sparks Control, ${unit}. Unable, ${err.toLowerCase()}.`);
+        return done(err);
+      }
+      // 10. Status
+      if (has(/\b(status|where are you|what's your|whats your|location|your 20|20)\b/)) { this.statusCheck(unit); return done(null); }
+      // 11. Call-up only
+      if (has(/\b(sparks control|control)\b/) && p.devs.length === 0 && p.incs.length === 0 && n.split(' ').length <= 6) { reply(unit, unit === '249' ? '249, go ahead.' : `${unit}, go ahead.`); return done(null); }
+      // 12. Plain acknowledgment
+      if (has(/^(\w+ )?(\d+ )?(copy|copies|10 4|ten four|roger|ok|okay|thank you|thanks|received|understood)\b/) || has(/\bcopy\b/)) return done(null);
+      reply(unit, `Sparks Control, ${unit === '249' ? '249' : unit}, say again your last?`);
+      return done('Crew did not understand — try standard phraseology (unit, action, device or incident)');
+    } finally {
+      this.voiced = false;
+    }
+  }
 
   /** Exercise-period reliability indices (IEEE 1366 style, simplified: every interruption counts as sustained). */
   reliability() {

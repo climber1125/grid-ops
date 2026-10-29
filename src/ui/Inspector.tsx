@@ -5,6 +5,7 @@ import type { DevEl, LineEl } from '../sim/types';
 import { sectionAround } from '../sim/network';
 import { devWord } from '../sim/radio';
 import { SUB_SPECS } from '../sim/topology';
+import { SayOr } from './VoiceUi';
 
 export function Inspector() {
   const { e, sel, setSel } = useCtx();
@@ -39,7 +40,7 @@ function sub(k: string, id: string, e: any) {
 }
 
 function DevView({ id }: { id: string }) {
-  const { e, openSbo, setTab, setSwPrefill, flyTo } = useCtx();
+  const { e, openSbo, setTab, setSwPrefill, flyTo, flash } = useCtx();
   const d = e.T.els[id] as DevEl;
   const st = e.s.dev[id];
   const en = e.nodeEn(d.from) || e.nodeEn(d.to);
@@ -51,7 +52,8 @@ function DevView({ id }: { id: string }) {
         <span className="k">Status</span>
         <span className="v">
           <span className={`state ${st.lockout ? 'lockout' : st.open ? 'open' : 'closed'}`}>{st.lockout ? 'LOCKOUT' : st.open ? 'OPEN' : 'CLOSED'}</span>
-          {st.tags.map(t => <span key={t} className="badge amber" style={{ marginLeft: 4 }}>HOLD {t}</span>)}
+          {st.tags.map(t => <span key={t} className={`badge ${t === 'OPR-LO' ? 'red' : 'amber'}`} style={{ marginLeft: 4 }}>{t === 'OPR-LO' ? 'OPERATOR LOCKOUT' : `HOLD ${t}`}</span>)}
+          {st.nonReclose && <span className="badge amber" style={{ marginLeft: 4 }}>HOT-LINE TAG · NON-RECLOSE</span>}
         </span>
         <span className="k">Normal</span><span className="v">{d.normalOpen ? 'Normally OPEN' : 'Normally CLOSED'}{st.open !== d.normalOpen ? <span className="c-amber"> · ABNORMAL</span> : null}</span>
         <span className="k">Location</span><span className="v">{d.loc}</span>
@@ -65,6 +67,12 @@ function DevView({ id }: { id: string }) {
         {d.scada && d.type !== 'fuse' && <>
           <button className="btn danger" disabled={st.open} onClick={() => openSbo({ dev: id, action: 'open' })}>SCADA OPEN</button>
           <button className="btn good" disabled={!st.open} onClick={() => openSbo({ dev: id, action: 'close' })}>SCADA CLOSE</button>
+        </>}
+        {(d.type === 'breaker' || d.type === 'recloser') && d.scada && <>
+          {!st.tags.includes('OPR-LO')
+            ? <button className="btn danger" title="Open (if closed) and apply a do-not-close tag. Use to lock a feeder out for safety." onClick={() => openSbo({ dev: id, action: 'lockout' })}>LOCK OUT</button>
+            : <button className="btn warn" onClick={() => { const er = e.releaseLockout(id); if (er) flash(er, 'warn'); }}>Remove lockout</button>}
+          <button className={`btn ${st.nonReclose ? 'warn' : ''}`} title="Hot-line tag: block reclosing so any fault trips straight to lockout. Required for energized work." onClick={() => { const er = e.setNonReclose(id, !st.nonReclose); if (er) flash(er, 'warn'); }}>{st.nonReclose ? 'Non-reclose ON — turn off' : 'Non-reclose (hot-line tag)'}</button>
         </>}
         {d.type !== 'fuse' && <button className="btn" onClick={() => { setSwPrefill({ dev: id, action: st.open ? 'close' : 'open' }); setTab('sw'); }}>Add to switching order</button>}
         <button className="btn" onClick={() => flyTo(d.pos, 16.5)}>Zoom</button>
@@ -160,9 +168,9 @@ export function TruckView({ id }: { id: string }) {
         <span className="k">Radio</span><span className="v">{tr.comm ? <span className="c-green">OK</span> : <span className="c-red">NO CONTACT</span>}</span>
       </div>
       <div className="acts">
-        <button className="btn" onClick={() => e.statusCheck(id)}>Radio status check</button>
+        <SayOr phrase={`Truck ${id}, Sparks Control, what's your status?`}><button className="btn" onClick={() => e.statusCheck(id)}>Radio status check</button></SayOr>
         <button className="btn" onClick={() => e.cellCall(id)}>Call cell</button>
-        <button className="btn" onClick={() => run(e.recall(id))}>Recall</button>
+        <SayOr phrase={`Truck ${id}, return to the service center`}><button className="btn" onClick={() => run(e.recall(id))}>Recall</button></SayOr>
         <button className="btn" onClick={() => flyTo(tr.pos, 16)}>Zoom</button>
       </div>
       <div className="sec-t">Dispatch to incident</div>
@@ -171,7 +179,7 @@ export function TruckView({ id }: { id: string }) {
           <option value="">— select incident —</option>
           {openIncs.map(i => <option key={i.id} value={i.id}>P{i.priority} {i.id} {i.predDev} ({i.custOut})</option>)}
         </select>
-        <button className="btn pri" disabled={!inc} onClick={() => run(e.dispatch(id, inc))}>Dispatch</button>
+        <SayOr phrase={`Truck ${id}, respond to ${inc || 'INC-####'}`}><button className="btn pri" disabled={!inc} onClick={() => run(e.dispatch(id, inc))}>Dispatch</button></SayOr>
       </div>
       {!tr.comm && <>
         <div className="sec-t">Welfare check</div>
@@ -180,7 +188,7 @@ export function TruckView({ id }: { id: string }) {
             <option value="">— send unit —</option>
             {others.map(t => <option key={t.id} value={t.id}>{t.id} · {t.status}</option>)}
           </select>
-          <button className="btn warn" disabled={!wf} onClick={() => run(e.welfareCheck(wf, id))}>Send</button>
+          <SayOr phrase={`Truck ${wf || '###'}, check on Truck ${id}`}><button className="btn warn" disabled={!wf} onClick={() => run(e.welfareCheck(wf, id))}>Send</button></SayOr>
         </div>
       </>}
     </>

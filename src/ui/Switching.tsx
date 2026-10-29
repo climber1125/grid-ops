@@ -4,6 +4,7 @@ import { useEffect, useState, Fragment } from 'react';
 import { useCtx } from './ctx';
 import type { DevEl } from '../sim/types';
 import { devWord } from '../sim/radio';
+import { SayOr } from './VoiceUi';
 
 export function SwitchingView() {
   const { e, swPrefill, setSwPrefill, openSbo, flash, setSel } = useCtx();
@@ -104,8 +105,8 @@ export function SwitchingView() {
                     <div className="q">{step.rbAction?.toUpperCase()} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>
                     <div className="dim" style={{ marginBottom: 6 }}>Order says: <b className="mono">{step.action.toUpperCase()} {step.dev}</b>. Compare carefully before confirming.</div>
                     <div className="acts">
-                      <button className="btn good" onClick={() => run(e.confirmRepeat(o.id, true))}>“That's correct — perform”</button>
-                      <button className="btn danger" onClick={() => run(e.confirmRepeat(o.id, false))}>“Negative — repeat”</button>
+                      <SayOr phrase="That's correct, perform"><button className="btn good" onClick={() => run(e.confirmRepeat(o.id, true))}>“That's correct — perform”</button></SayOr>
+                      <SayOr phrase={`Negative. Step ${o.cur + 1}: ${step.action} ${step.dev}. Repeat.`}><button className="btn danger" onClick={() => run(e.confirmRepeat(o.id, false))}>“Negative — repeat”</button></SayOr>
                     </div>
                   </>
                 ) : step.status === 'Pending' || step.status === 'Failed' ? (
@@ -113,7 +114,7 @@ export function SwitchingView() {
                     <span>Next: step {o.cur + 1} — <b className="mono">{step.action.toUpperCase()} {step.dev}</b> by {step.exec === 'SCADA' ? 'SCADA' : `Truck ${step.exec}`}</span>
                     {step.exec === 'SCADA'
                       ? <button className="btn pri" onClick={() => openSbo({ dev: step.dev, action: step.action, order: o.id, viaOrder: true })}>Select / operate…</button>
-                      : <button className="btn pri" onClick={() => run(e.issueStep(o.id))}>Issue by radio</button>}
+                      : <SayOr phrase={`Truck ${step.exec}, ${o.id} step ${o.cur + 1}: ${step.action} ${devWord(e.T.els[step.dev] as DevEl)} ${step.dev}${step.loop ? ', loop close' : ''}`}><button className="btn pri" onClick={() => run(e.issueStep(o.id))}>Issue by radio</button></SayOr>}
                     {err && <div className="c-red" style={{ width: '100%', fontSize: 11 }}>{err}</div>}
                   </div>
                 ) : (

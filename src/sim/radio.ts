@@ -26,6 +26,7 @@ export const CAUSE_TEXT: Record<Cause, string> = {
   lightning: 'lightning',
   temporary: 'temporary fault',
   planned: 'planned work',
+  contact: 'electrical contact',
 };
 
 export function findingText(c: Cause, hazard: boolean): string {
@@ -39,6 +40,7 @@ export function findingText(c: Cause, hazard: boolean): string {
       : 'Found a large limb in the B-phase primary, conductor is burned but still up';
     case 'insulator': return 'Found a flashed-over pin insulator, crossarm is burned';
     case 'lightning': return 'Lightning arrester is blown, flash marks on the pole';
+    case 'contact': return 'Electrical contact at the work location';
     default: return 'Patrolled the line, no trouble found';
   }
 }

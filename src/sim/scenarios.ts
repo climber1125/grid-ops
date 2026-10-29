@@ -7,7 +7,8 @@ import type { Engine } from './engine';
 import type { Cause, DevEl, LatLng } from './types';
 import { SERVICE_CENTER, nearestName } from './roads';
 import { sectionAround } from './network';
-import { offset } from './geo';
+import { offset, dist } from './geo';
+import type { LineEl } from './types';
 
 export interface ScenarioDef {
   id: string; short: string; name: string; brief: string;
@@ -437,6 +438,191 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
     },
     isDone(e) { return e.s.scen.obj.f4.status !== 'pending' || e.s.t > 2.5 * 3600; },
   },
+  G: {
+    id: 'G', short: 'G', name: 'Rescue — Electrical Contact',
+    brief: 'Truck 233 is doing energized (hot-stick) work on IW-2120 downstream of recloser R-2125 in the Eastside Industrial Park. They will ask for a hot-line tag. Later something goes wrong. Protect the crew before the work starts, then run the emergency: make the line dead and keep it dead, get EMS rolling, clear the channel, send help, and do not restore until the line is formally released.',
+    objectives: [
+      { id: 'g1', text: 'Set non-reclose (hot-line tag) on R-2125 before releasing the crew for energized work' },
+      { id: 'g2', text: 'R-2125 open and operator-locked-out within 60 s of the emergency call' },
+      { id: 'g3', text: 'Call 911 / EMS within 2 minutes of the emergency call' },
+      { id: 'g4', text: 'Declare emergency traffic and dispatch a second unit within 3 minutes' },
+      { id: 'g5', text: 'Tell the crew the line is dead and locked out before the rescue starts' },
+      { id: 'g6', text: 'Do not re-energize R-2125 until the line is released by the field' },
+    ],
+    background: { single: 2400 },
+    setup(e) {
+      e.s.autoAssist = false;
+      e.s.scen.flags.noRandomErrors = true;
+      e.s.scen.flags.noRoutine = false;
+      const el = e.mainElAfter('R-2125', 3);
+      const path = (e.T.els[el] as LineEl).path;
+      const site = path[Math.floor(path.length / 2)];
+      e.s.scen.flags.workEl = el;
+      const t233 = e.addTruck('233', offset(site, 22, 14));
+      t233.task = { kind: 'planned', id: 'PW-7760' }; t233.status = 'Standing By';
+      e.addTruck('230', SERVICE_CENTER);
+      e.addTruck('238', [33.2030, -97.1250]);
+      e.addTruck('235', [33.2290, -97.1420]);
+      startOnWorkOrder(e, '235', 900);
+      e.schedule(12, 'scn', { name: 'askHotline' });
+    },
+    event(e, name, d) {
+      const F = e.s.scen.flags;
+      const tr = e.truck('233');
+      const loc = nearestName(e.s.faults[F.faultId]?.pos ?? tr.pos);
+      switch (name) {
+        case 'askHotline':
+          e.say([['233', `Sparks Control, 233. We're set up for energized work on IW-2120 near ${nearestName(tr.pos)}. Requesting a hot-line tag, non-reclose, on R-2125.`]], { unit: '233' });
+          e.request('hotline', '233', `Hot-line tag (non-reclose) on R-2125 for energized work near ${nearestName(tr.pos)}`, { dev: 'R-2125' });
+          break;
+        case 'hotlineGranted':
+          if (F.hlT !== undefined) break;
+          F.hlT = e.s.t;
+          e.setObj('g1', d.nr ? 'pass' : 'fail', d.nr ? undefined : 'Crew released with reclosing still enabled');
+          tr.status = 'Working';
+          e.schedule(150 + e.rand() * 60, 'scn', { name: 'contact' });
+          break;
+        case 'contact': {
+          const f = e.createFault(F.workEl, false, 'contact', true);
+          f.found = false; f.desc = 'electrical contact — crew member';
+          F.faultId = f.id;
+          e.applyFault(f);
+          e.schedule(4, 'scn', { name: 'mayday' });
+          break;
+        }
+        case 'recloseOnFault':
+          if (d.fault === F.faultId && !F.reclosedOnCrew) { F.reclosedOnCrew = true; e.violation('reclose-crew', `${d.dev} reclosed onto the crew — reclosing was not blocked`); }
+          break;
+        case 'mayday':
+          F.emT = e.s.t;
+          e.alarm('mayday', 'EMERGENCY — Truck 233 man down, electrical contact (IW-2120)', 1);
+          e.log('SAFETY', 'alarm', `EMERGENCY: Truck 233 reports a man down from electrical contact near ${loc}`);
+          e.say([
+            ['233', 'Emergency, emergency, emergency! Sparks Control, 233!'],
+            ['233', `We have a man down, electrical contact in the bucket near ${loc}. He's not moving. Make sure that line is dead! We need EMS!`],
+          ], { unit: '233', kind: 'emergency' });
+          break;
+        case 'lockout':
+          if (d.dev === 'R-2125' && F.emT !== undefined && F.loT === undefined) F.loT = e.s.t;
+          break;
+        case 'ems':
+          if (F.emT !== undefined && F.emsT === undefined) { F.emsT = e.s.t; e.log('SAFETY', 'good', 'EMS dispatched by 911 — ETA about 7 minutes'); e.schedule(420, 'scn', { name: 'emsArrive' }); }
+          break;
+        case 'emergencyTraffic':
+          if (F.emT !== undefined && F.etT === undefined) F.etT = e.s.t;
+          break;
+        case 'confirmDead': {
+          if (F.emT === undefined || F.confT !== undefined) break;
+          const st = e.s.dev['R-2125'];
+          const dead = st.open && st.tags.includes('OPR-LO');
+          if (dead) {
+            F.confT = e.s.t;
+            e.setObj('g5', 'pass');
+            e.say([['233', '233 copies, R-2125 open and locked out, line is dead. Beginning bucket rescue now.']], { unit: '233', kind: 'emergency', start: 2 });
+            e.decision('Confirmed to 233 that the line is dead and locked out', true);
+            e.schedule(90, 'scn', { name: 'lowered' });
+          } else {
+            e.say([['233', `Sparks Control, 233, negative! I need R-2125 open AND locked out before we touch him. ${st.open ? "It's open but not locked out." : 'We still show it closed!'} Confirm when it is.`]], { unit: '233', kind: 'emergency', start: 2 });
+            e.decision('Told the crew the line was dead before it was open and locked out', false);
+          }
+          break;
+        }
+        case 'lowered': {
+          const f = e.s.faults[F.faultId]; if (f) { f.active = false; f.found = true; }
+          e.say([['233', `Control, 233. We have him down out of the bucket. He's conscious and breathing, burns on his right hand and left foot. Starting first aid.${F.emsT === undefined ? ' Is EMS en route? We need them now!' : ''}`]], { unit: '233', kind: 'emergency' });
+          if (F.emsT === undefined) e.schedule(120, 'scn', { name: 'nagEms' });
+          break;
+        }
+        case 'nagEms':
+          if (F.emsT === undefined) e.say([['233', 'Sparks Control, 233! Still no EMS here — has 911 been called?']], { unit: '233', kind: 'emergency' });
+          break;
+        case 'emsArrive':
+          e.say([['233', 'Control, 233. EMS is on scene and taking over patient care.']], { unit: '233', kind: 'emergency' });
+          e.schedule(300, 'scn', { name: 'transport' });
+          break;
+        case 'transport': {
+          e.say([['233', 'Control, 233. EMS is transporting to Sparks Regional. 233 will be out of service.']], { unit: '233', kind: 'emergency' });
+          tr.task = null; tr.status = 'Off Duty'; tr.tok++;
+          e.clearAlarm('mayday');
+          e.say([['249', 'Sparks Control, Supervisor 249 on scene. Scene is secured for the investigation. Line damage is minor. The second unit will patrol the section and call you to restore.']], { unit: '249', start: 40 });
+          e.schedule(360, 'scn', { name: 'patrolDone' });
+          break;
+        }
+        case 'patrolDone': {
+          const inc = Object.values(e.s.incidents).find(i => i.truthDev === 'R-2125');
+          const unit = inc?.crew && inc.crew !== '233' && e.s.trucks[inc.crew] ? inc.crew : Object.values(e.s.trucks).find(t => t.id !== '233' && t.status !== 'Off Duty')?.id ?? '238';
+          F.released = true; F.relT = e.s.t;
+          e.say([[unit, `Sparks Control, ${unit}. Patrolled the R-2125 section, all clear. All personnel are clear of the line. Requesting to restore R-2125.`]], { unit });
+          e.request('close', unit, 'Restore R-2125 — section patrolled, all personnel clear (remove your lockout first)', { dev: 'R-2125', inc: inc?.id });
+          break;
+        }
+      }
+    },
+    periodic(e) {
+      const F = e.s.scen.flags;
+      const st = e.s.dev['R-2125'];
+      if (F.emT !== undefined) {
+        if (F.loT !== undefined) e.setObj('g2', F.loT - F.emT <= 60 ? 'pass' : 'fail', `${Math.round(F.loT - F.emT)} s`);
+        else if (e.s.t - F.emT > 60) e.setObj('g2', 'fail', 'Not locked out within 60 s');
+        if (F.emsT !== undefined) e.setObj('g3', F.emsT - F.emT <= 120 ? 'pass' : 'fail', `${Math.round(F.emsT - F.emT)} s`);
+        else if (e.s.t - F.emT > 120) e.setObj('g3', 'fail', '911 not called within 2 min');
+        const inc = Object.values(e.s.incidents).find(i => i.truthDev === 'R-2125');
+        const second = inc?.firstDispatchT != null ? inc.firstDispatchT : undefined;
+        if (F.etT !== undefined && second !== undefined) e.setObj('g4', Math.max(F.etT, second) - F.emT <= 180 ? 'pass' : 'fail');
+        else if (e.s.t - F.emT > 180) e.setObj('g4', 'fail', F.etT === undefined ? 'Emergency traffic not declared' : 'No second unit dispatched');
+        if (F.confT === undefined && F.emT !== undefined && e.s.t - F.emT > 600) e.setObj('g5', 'fail', 'Crew never told the line was dead');
+      }
+      if (F.faultId && !F.released && !st.open) e.setObj('g6', 'fail', 'R-2125 closed before the line was released');
+      if (F.released && !st.open) e.setObj('g6', 'pass');
+      if (e.s.metrics.violations.some(v => v.code === 'tag')) e.setObj('g6', 'fail', 'Tried to close a locked-out device');
+    },
+    isDone(e) { return e.s.scen.obj.g6.status !== 'pending' || e.s.t > 3 * 3600; },
+  },
+
+  T: {
+    id: 'T', short: 'T', name: 'Tutorial — First Shift',
+    brief: 'A guided first shift. The coach panel walks you through reading the map, handling an outage from first call to verified restoration, talking to crews on the radio, and using SCADA safely. Take your time — nothing here is graded harshly.',
+    objectives: [
+      { id: 't1', text: 'Dispatch a crew to the outage' },
+      { id: 't2', text: 'Give the crew permission to close the fuse' },
+      { id: 't3', text: 'Verify restoration and close the incident' },
+      { id: 't4', text: 'Place and remove a hot-line tag (non-reclose) on a recloser' },
+    ],
+    background: {},
+    setup(e) {
+      e.s.autoAssist = false;
+      e.s.scen.flags.noRandomErrors = true;
+      e.s.scen.flags.noRoutine = true;
+      e.s.scen.flags.tutStep = 0;
+      e.addTruck('233', SERVICE_CENTER);
+      e.addTruck('230', [33.2290, -97.1420]);
+      // nearest IW-2110 lateral to the service center: short drive for the tutorial
+      const fuses = Object.keys(e.T.laterals).filter(f => e.T.laterals[f].feeder === 'IW-2110');
+      fuses.sort((a, b) => dist((e.T.els[a] as DevEl).pos, SERVICE_CENTER) - dist((e.T.els[b] as DevEl).pos, SERVICE_CENTER));
+      e.s.scen.flags.tutFuse = fuses[0];
+      e.schedule(45, 'scn', { name: 'outage' });
+    },
+    event(e, name, d) {
+      if (name === 'outage') {
+        const fz = e.s.scen.flags.tutFuse;
+        const f = e.createFault(e.T.laterals[fz].els[1], false, 'animal', true);
+        e.applyFault(f);
+        e.s.scen.flags.tutOutT = e.s.t;
+      }
+      if (name === 'nonReclose') {
+        if (d.on) e.s.scen.flags.tutNrOn = true;
+        else if (e.s.scen.flags.tutNrOn) e.setObj('t4', 'pass');
+      }
+    },
+    periodic(e) {
+      const fz = e.s.scen.flags.tutFuse;
+      const inc = Object.values(e.s.incidents).find(i => i.truthDev === fz);
+      if (inc?.crew) e.setObj('t1', 'pass');
+      if (e.s.requests.some(r => r.type === 'close' && r.dev === fz && (r.status === 'Approved' || r.status === 'Done'))) e.setObj('t2', 'pass');
+      if (inc?.status === 'Closed') e.setObj('t3', 'pass');
+    },
+    isDone(e) { return Object.values(e.s.scen.obj).every(o => o.status !== 'pending') && (e.s.scen.flags.tutStep ?? 0) >= 99; },
+  },
 };
 
-export const SCENARIO_LIST = ['A', 'B', 'C', 'D', 'E', 'F'];
+export const SCENARIO_LIST = ['T', 'A', 'B', 'C', 'D', 'E', 'F', 'G'];

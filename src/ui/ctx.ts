@@ -3,7 +3,9 @@ import type { Engine } from '../sim/engine';
 import type { LatLng } from '../sim/types';
 
 export type Sel = { kind: 'dev' | 'load' | 'truck' | 'inc' | 'line' | 'sub'; id: string } | null;
-export interface SboReq { dev: string; action: 'open' | 'close'; order?: string; viaOrder?: boolean; }
+export interface SboReq { dev: string; action: 'open' | 'close' | 'lockout'; order?: string; viaOrder?: boolean; }
+
+export interface Ptt { supported: boolean; active: boolean; interim: string; error: string | null; start(): void; stop(): void; send(text: string): void; }
 
 export interface Ctx {
   e: Engine;
@@ -15,6 +17,9 @@ export interface Ctx {
   swPrefill: { dev: string; action: 'open' | 'close' } | null;
   setSwPrefill(p: { dev: string; action: 'open' | 'close' } | null): void;
   flash(text: string, level?: 'info' | 'warn' | 'alarm' | 'good'): void;
+  /** Voice radio is on and working: radio traffic must be spoken, not clicked. */
+  voiceReq: boolean;
+  ptt: Ptt;
 }
 
 export const EngineCtx = createContext<Ctx>(null as unknown as Ctx);

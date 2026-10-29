@@ -20,7 +20,8 @@ export const ACTIONS = new Set([
   'ackAlarm', 'ackAll', 'scadaControl', 'dispatch', 'recall', 'statusCheck', 'cellCall', 'welfareCheck',
   'approve', 'deny', 'releaseClearance', 'newOrder', 'addStep', 'removeStep', 'activateOrder', 'cancelOrder',
   'issueStep', 'confirmRepeat', 'verifyIncident', 'decision', 'setSpeed', 'setPaused', 'setAutoAssist',
-  'rosterAdd', 'rosterEdit', 'rosterRemove',
+  'rosterAdd', 'rosterEdit', 'rosterRemove', 'lockoutDevice', 'releaseLockout', 'setNonReclose', 'notify911',
+  'declareEmergency', 'confirmDead', 'setVoiceRadio', 'voiceTx', 'setTutStep',
 ]);
 
 export type Msg =

@@ -107,6 +107,14 @@ src/ui/             ← operator workstation (React)
 
 ---
 
+## 3b. Voice radio, lockout, rescue, tutorial
+
+- **Talk-back (default ON, optional):** hold **Space** (or the HOLD TO TALK button) and speak to crews like a real dispatcher: "Truck 233, Sparks Control, respond to incident 4101." While talk-back is on, radio buttons are replaced by the phrase to say. Untick **Talk-back** in the Radio panel to go back to clicking. If your browser has no speech input (use Chrome or Edge) a typed-transmission box appears instead.
+- **How it works:** speech-to-text is built into the browser (free, no API keys); a local phraseology parser turns spoken numbers and device names ("S twenty one fourteen", "recloser twenty one twenty five") into commands. It is rule-based, not a paid AI model. Crew replies use the best installed browser voices (Edge "Natural" voices are the best free option; each truck keeps its own voice).
+- **Lockout:** select any breaker/recloser/switch → **LOCK OUT** opens it and tags it so it cannot be closed until you remove the lockout. **Non-reclose** (hot-line tag) disables reclosing for crews working energized.
+- **Scenario G — Rescue:** a lineman is hurt on a hot-line job. Declare emergency traffic, call ☎ 911, lock out the source, confirm the line dead to the crew, then restore after the rescue.
+- **Scenario T — Tutorial:** guided first shift with a coach panel.
+
 ## 4. Extending
 
 - **Voices:** implement `RadioVoice` in `src/ui/audio.ts` (e.g. prerecorded clips keyed by message template, or a local Piper/Coqui TTS server) and add it to `VOICES`. `RadioMsg` carries speaker, kind and unit, so clips can be chosen per crew.

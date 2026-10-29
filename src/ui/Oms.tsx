@@ -4,6 +4,7 @@ import { useCtx, age } from './ctx';
 import type { DevEl, Incident } from '../sim/types';
 import { dist } from '../sim/geo';
 import { route } from '../sim/roads';
+import { SayOr } from './VoiceUi';
 
 export function OmsPanel() {
   const { e, sel, setSel, flyTo, flash } = useCtx();
@@ -85,7 +86,7 @@ export function OmsPanel() {
                   return <option key={t.id} value={t.id} disabled={!!t.clearance || !!t.sw}>{t.id} · {t.status}{t.task ? ` (${t.task.kind})` : ''} · ~{mins} min</option>;
                 })}
               </select>
-              <button className="btn pri" disabled={!truck} onClick={() => { const err = e.dispatch(truck, selInc.id); if (err) flash(err, 'warn'); }}>Dispatch</button>
+              <SayOr phrase={`Truck ${truck || '###'}, Sparks Control, respond to ${selInc.id}`}><button className="btn pri" disabled={!truck} onClick={() => { const err = e.dispatch(truck, selInc.id); if (err) flash(err, 'warn'); }}>Dispatch</button></SayOr>
             </div>
           )}
           {selInc.status === 'Restored' && <div className="form-row"><span className="c-green">All customers restored. Verify by AMI ping/callback before closing.</span><button className="btn good" onClick={() => { const err = e.verifyIncident(selInc.id); if (err) flash(err, 'warn'); }}>Verify &amp; Close</button></div>}

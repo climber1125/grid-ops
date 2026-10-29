@@ -12,7 +12,8 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
   useEffect(() => { const id = setInterval(() => force(x => x + 1), 500); return () => clearInterval(id); }, []);
   const d = e.T.els[req.dev] as DevEl;
   const st = e.s.dev[req.dev];
-  const pv = e.preview(req.dev, req.action);
+  const lo = req.action === 'lockout';
+  const pv = e.preview(req.dev, lo ? 'open' : (req.action as 'open' | 'close'));
   const left = armedAt ? Math.max(0, 30 - Math.floor((Date.now() - armedAt) / 1000)) : 0;
   useEffect(() => { if (armedAt && left === 0) setArmedAt(null); }, [left, armedAt]);
   const order = req.order ? e.s.orders[req.order] : undefined;
@@ -23,8 +24,8 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
   if (req.action === 'close' && st.tags.length) blockers.push(`HOLD tag ${st.tags.join(', ')} — close prohibited.`);
   if (pv.loop && !stepLoop) blockers.push(`Would parallel ${pv.parallelSubs ? 'two substations' : 'two feeders'} — only allowed as a LOOP step of an active switching order.`);
   const exec = () => {
-    const err = req.viaOrder && req.order ? e.issueStep(req.order) : (e.scadaControl(req.dev, req.action).reason ?? null);
-    if (err) flash(err, 'warn'); else flash(`${req.dev} ${req.action === 'open' ? 'OPENED' : 'CLOSED'} via SCADA`, 'good');
+    const err = lo ? e.lockoutDevice(req.dev) : req.viaOrder && req.order ? e.issueStep(req.order) : (e.scadaControl(req.dev, req.action as 'open' | 'close').reason ?? null);
+    if (err) flash(err, 'warn'); else flash(`${req.dev} ${lo ? 'OPENED & LOCKED OUT' : req.action === 'open' ? 'OPENED' : 'CLOSED'} via SCADA`, 'good');
     onClose();
   };
   return (
@@ -36,7 +37,7 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
             <span className="k">Device</span><span className="v"><b>{req.dev}</b> — {devWord(d)} · {d.feeder}</span>
             <span className="k">Location</span><span className="v">{d.loc}</span>
             <span className="k">Present state</span><span className="v"><span className={`state ${st.open ? 'open' : 'closed'}`}>{st.lockout ? 'LOCKOUT' : st.open ? 'OPEN' : 'CLOSED'}</span></span>
-            <span className="k">Command</span><span className="v"><span className={`state ${req.action === 'open' ? 'open' : 'closed'}`}>{req.action.toUpperCase()}</span>{order ? <span className="dim"> · {order.id} step {order.cur + 1}{stepLoop ? ' (LOOP)' : ''}</span> : <span className="c-amber"> · direct control (no switching order)</span>}</span>
+            <span className="k">Command</span><span className="v"><span className={`state ${req.action === 'close' ? 'closed' : 'open'}`}>{lo ? 'OPEN + LOCK OUT' : req.action.toUpperCase()}</span>{lo ? <span className="dim"> · applies OPR-LO do-not-close tag; reclosing and all close commands blocked until removed</span> : order ? <span className="dim"> · {order.id} step {order.cur + 1}{stepLoop ? ' (LOOP)' : ''}</span> : <span className="c-amber"> · direct control (no switching order)</span>}</span>
           </div>
           <div className="sec-t">Predicted result (connectivity model)</div>
           {pv.lose > 0 && <div className="warnbox">{pv.lose.toLocaleString()} customers will lose power{pv.critLose ? ` — includes ${pv.critLose} CRITICAL customer(s)` : ''}.</div>}
@@ -52,7 +53,7 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
           <button className="btn" onClick={onClose}>Cancel</button>
           {!armedAt
             ? <button className="btn warn" disabled={blockers.length > 0} onClick={() => setArmedAt(Date.now())}>SELECT</button>
-            : <button className={`btn ${req.action === 'open' ? 'danger' : 'good'}`} onClick={exec}>EXECUTE {req.action.toUpperCase()}</button>}
+            : <button className={`btn ${req.action === 'close' ? 'good' : 'danger'}`} onClick={exec}>EXECUTE {lo ? 'LOCKOUT' : req.action.toUpperCase()}</button>}
         </div>
       </div>
     </div>

@@ -18,7 +18,8 @@ import { CrewBoard, AlarmPanel } from './Bottom';
 import { Inspector } from './Inspector';
 import { SboModal, ScenarioModal, AarModal } from './Modals';
 import { StatusWall, applyRoster } from './Fleet';
-import { RadioPlayer, alarmTone, unlockAudio } from './audio';
+import { RadioPlayer, alarmTone, unlockAudio, keyChirp, PttSession, speechRecognitionSupported } from './audio';
+import { TutorialCoach } from './Tutorial';
 import { saveState, loadState } from '../sim/persist';
 import { openChannel, remoteEngine, initialView, viewUrl, VIEWS, WIN_ID, type Msg, type View } from './link';
 import type { LatLng } from '../sim/types';
@@ -92,6 +93,13 @@ export default function App() {
   const [showObj, setShowObj] = useState(true);
   const [audioOn, setAudioOn] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [talkBack, setTalkBackRaw] = useState<boolean>(() => { try { return localStorage.getItem('gridops-talkback') !== '0'; } catch { return true; } });
+  const setTalkBack = (v: boolean) => { setTalkBackRaw(v); try { localStorage.setItem('gridops-talkback', v ? '1' : '0'); } catch { /* ignore */ } };
+  const [pttActive, setPttActive] = useState(false);
+  const [pttInterim, setPttInterim] = useState('');
+  const [pttError, setPttError] = useState<string | null>(null);
+  const pttRef = useRef<PttSession | null>(null);
+  const pttSupported = useMemo(() => speechRecognitionSupported(), []);
   const [silenced, setSilenced] = useState(false);
   const [keyed, setKeyed] = useState<string | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -299,6 +307,40 @@ export default function App() {
     if (viewRef.current === 'gis' || viewRef.current === 'scada' || viewRef.current === 'sw') setView(t);
     else window.open(viewUrl(t), `gridops-${t}-${Date.now()}`, 'popup,width=1400,height=900');
   };
+  // ── Push-to-talk ───────────────────────────────────────────
+  const voiceReq = talkBack && pttSupported;
+  const sendTx = (text: string) => {
+    const r: any = (ceRef.current as any).voiceTx(text);
+    const msg = typeof r === 'string' ? r : r && r.ok === false ? r.reason : null;
+    if (msg) flash(msg, 'warn');
+  };
+  const pttStart = () => {
+    if (!pttSupported || pttRef.current) return;
+    unlockAudio(); setPttError(null); setPttInterim('');
+    keyChirp(); player.current.hold(true);
+    const sess = new PttSession({
+      onInterim: t => setPttInterim(t),
+      onFinal: t => sendTx(t),
+      onError: er => setPttError(er === 'not-allowed' || er === 'service-not-allowed' ? 'Microphone blocked — allow the mic for this site (padlock in the address bar), or use Type instead.' : `Voice input error: ${er}. Use Type instead.`),
+      onEnd: () => { pttRef.current = null; setPttActive(false); player.current.hold(false); },
+    });
+    pttRef.current = sess; setPttActive(true); sess.start();
+  };
+  const pttStop = () => { pttRef.current?.stop(); };
+  const ceRef = useRef(ce); ceRef.current = ce;
+  const pttFns = useRef({ start: pttStart, stop: pttStop }); pttFns.current = { start: pttStart, stop: pttStop };
+  useEffect(() => {
+    if (!talkBack || !pttSupported) return;
+    const inField = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable); };
+    const dn = (ev: KeyboardEvent) => { if (ev.code === 'Space' && !ev.repeat && !inField(ev.target)) { ev.preventDefault(); pttFns.current.start(); } };
+    const up = (ev: KeyboardEvent) => { if (ev.code === 'Space' && pttRef.current) { ev.preventDefault(); pttFns.current.stop(); } };
+    window.addEventListener('keydown', dn); window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+  }, [talkBack, pttSupported]);
+  // Engine voice-radio mode follows the setting (main console owns the engine state).
+  useEffect(() => { if (isMaster && e.s.voiceRadio !== voiceReq) e.setVoiceRadio(voiceReq); });
+  useEffect(() => { if (!isMaster && ce.s.voiceRadio !== voiceReq) (ce as any).setVoiceRadio(voiceReq); }, [voiceReq, isMaster, e.s.voiceRadio]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const ctx: Ctx = {
     e: ce, sel,
     setSel: (x: Sel) => { setSelLocal(x); post({ type: 'sel', from: WIN_ID, sel: x }); },
@@ -308,6 +350,8 @@ export default function App() {
     swPrefill,
     setSwPrefill: (p: Prefill) => { prefillRef.current = p; setSwPrefillState(p); },
     flash,
+    voiceReq,
+    ptt: { supported: pttSupported, active: pttActive, interim: pttInterim, error: pttError, start: pttStart, stop: pttStop, send: sendTx },
   };
 
   // ── Monitor launcher ───────────────────────────────────────
@@ -355,7 +399,7 @@ export default function App() {
   const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' ? view : tab;
   const pickTab = (t: Tab) => (view === 'all' ? (setTabRaw(t), setMon(t)) : setView(t));
 
-  const radio = <RadioPanel keyed={keyed} voiceOn={voiceOn} setVoiceOn={setVoiceOn} audioOn={audioOn && isMaster} />;
+  const radio = <RadioPanel keyed={keyed} voiceOn={voiceOn} setVoiceOn={setVoiceOn} audioOn={audioOn && isMaster} talkBack={talkBack} setTalkBack={setTalkBack} />;
   const alarms = <AlarmPanel silenced={silenced} setSilenced={setSilenced} />;
   const waiting = role === 'pending' || (role === 'replica' && !gotState.current);
 
@@ -430,6 +474,7 @@ export default function App() {
                   {showObj && objs.map(o => { const st = s.scen.obj[o.id]; return <div key={o.id} className="obj"><span className={st?.status === 'pass' ? 'c-green' : st?.status === 'fail' ? 'c-red' : 'dim'}>{st?.status === 'pass' ? '✔' : st?.status === 'fail' ? '✖' : '○'}</span><span style={{ color: st?.status === 'pending' ? undefined : 'var(--dim)' }}>{o.text}</span></div>; })}
                 </div>
               )}
+              {s.scenario === 'T' && curTab !== 'sw' && <TutorialCoach />}
               <div className="toasts">
                 {toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}
               </div>
