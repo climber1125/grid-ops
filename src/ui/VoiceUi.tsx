@@ -1,7 +1,7 @@
 // Voice-radio helpers: when talk-back is on, radio actions are spoken —
 // buttons are replaced by the phrase to say, so the operator learns the
 // phraseology. SCADA and phone actions stay as buttons.
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { useCtx } from './ctx';
 
 export function SayOr({ phrase, children }: { phrase: string; children: ReactNode }) {
@@ -12,21 +12,28 @@ export function SayOr({ phrase, children }: { phrase: string; children: ReactNod
 
 export function PttBar() {
   const { ptt, voiceReq, e } = useCtx();
+  const down = useRef(0);
+  const latched = useRef(false);
   if (!ptt.supported && !voiceReq) return null;
   return (
     <div className={`pttbar ${ptt.active ? 'live' : ''}`}>
       {ptt.supported ? (
         <button
           className={`btn ptt ${ptt.active ? 'on' : ''}`}
-          onPointerDown={ev => { ev.preventDefault(); ptt.start(); }}
-          onPointerUp={() => ptt.stop()}
-          onPointerLeave={() => { if (ptt.active) ptt.stop(); }}
-        >{ptt.active ? '● TRANSMITTING' : 'HOLD TO TALK'}</button>
+          onPointerDown={ev => {
+            ev.preventDefault();
+            if (latched.current) { latched.current = false; ptt.stop(); return; }
+            try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch { /* ignore */ }
+            down.current = Date.now(); ptt.start();
+          }}
+          onPointerUp={() => { if (Date.now() - down.current < 450) latched.current = true; else ptt.stop(); }}
+          onPointerCancel={() => { if (!latched.current) ptt.stop(); }}
+        >{ptt.active ? (latched.current ? '● TALKING — TAP TO SEND' : '● TRANSMITTING') : 'HOLD TO TALK'}</button>
       ) : null}
       <div className="pttline">
         {ptt.active ? <span className="interim">{ptt.interim || 'Listening…'}</span>
           : ptt.error ? <span className="c-red">{ptt.error}</span>
-          : <span className="dim">Hold <b>Space</b> or the button and talk. Start with the unit: “Truck {Object.keys(e.s.trucks)[0] ?? '233'}, Sparks Control…”</span>}
+          : <span className="dim">Hold <b>Space</b> or the button, or tap once to talk and again to send. Start with the unit: “Truck {Object.keys(e.s.trucks)[0] ?? '233'}, Sparks Control…”</span>}
       </div>
     </div>
   );

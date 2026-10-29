@@ -427,3 +427,6 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .chips { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; padding: 4px 8px; border-top: 1px solid var(--line); }
 .btn.chip { color: var(--cyan); border-color: var(--cyan); }
 @media print { .topbar, .ws > *:not(.modal-bg) { display: none !important; } .modal-bg { position: static; background: #fff; } .modal.cheat { color: #000; background: #fff; } }
+.pttbar { min-height: 46px; }
+.btn.ptt { width: 190px; min-width: 190px; height: 34px; flex: none; white-space: nowrap; }
+.pttline { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
