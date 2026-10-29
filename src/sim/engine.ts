@@ -1484,10 +1484,24 @@ export class Engine {
 
   // ── Operator voice transmissions ───────────────────────────
   /** The operator keyed up and said `text`. Logs it, works out who was addressed and what was asked, and acts. */
-  voiceTx(text: string): string | null {
+  /** Compact, non-secret situation summary sent to the optional AI phraseology normalizer. */
+  aiContext() {
+    return {
+      units: Object.keys(this.s.trucks),
+      lastUnit: this.s.radioCtx && this.s.t - this.s.radioCtx.t < 120 ? this.s.radioCtx.unit : null,
+      incidents: this.openIncidents().filter(i => i.status !== 'Restored').slice(0, 8).map(i => ({ id: i.id, dev: i.predDev, crew: i.crew ?? null })),
+      pending: this.s.requests.filter(r => r.status === 'Pending').map(r => ({ truck: r.truck, type: r.type, dev: r.dev ?? null })),
+      repeatBack: Object.values(this.s.orders).filter(o => o.status === 'Active' && o.steps[o.cur]?.status === 'RepeatBack').map(o => ({ truck: o.steps[o.cur].exec, step: `${o.steps[o.cur].action} ${o.steps[o.cur].dev}` })),
+      activeStep: Object.values(this.s.orders).filter(o => o.status === 'Active').map(o => ({ truck: o.steps[o.cur]?.exec, step: `${o.steps[o.cur]?.action} ${o.steps[o.cur]?.dev}` })),
+      emergency: this.s.scen.flags.emT !== undefined && this.s.scen.flags.confT === undefined,
+    };
+  }
+
+  voiceTx(text: string, display?: string): string | null {
     const raw = text.trim();
     if (!raw) return null;
-    this.radioNow('C', raw.charAt(0).toUpperCase() + raw.slice(1), 'operator', '');
+    const shown = (display ?? raw).trim();
+    this.radioNow('C', shown.charAt(0).toUpperCase() + shown.slice(1), 'operator', '');
     const units = Object.keys(this.s.trucks);
     const p = parseRadio(raw, units, id => !!this.T.els[id]);
     const n = p.norm;

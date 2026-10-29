@@ -95,6 +95,14 @@ export default function App() {
   const [voiceOn, setVoiceOn] = useState(true);
   const [talkBack, setTalkBackRaw] = useState<boolean>(() => { try { return localStorage.getItem('gridops-talkback') !== '0'; } catch { return true; } });
   const setTalkBack = (v: boolean) => { setTalkBackRaw(v); try { localStorage.setItem('gridops-talkback', v ? '1' : '0'); } catch { /* ignore */ } };
+  const [aiAvail, setAiAvail] = useState(false);
+  const [aiOn, setAiOnRaw] = useState<boolean>(() => { try { return localStorage.getItem('gridops-ai') !== '0'; } catch { return true; } });
+  const setAiOn = (v: boolean) => { setAiOnRaw(v); try { localStorage.setItem('gridops-ai', v ? '1' : '0'); } catch { /* ignore */ } };
+  const aiOnRef = useRef(aiOn); aiOnRef.current = aiOn;
+  useEffect(() => {
+    if (!/^https?:/.test(location.protocol)) return;
+    fetch('/.netlify/functions/interpret').then(r => r.ok ? r.json() : null).then(j => setAiAvail(!!j?.enabled)).catch(() => setAiAvail(false));
+  }, []);
   const [pttActive, setPttActive] = useState(false);
   const [pttInterim, setPttInterim] = useState('');
   const [pttError, setPttError] = useState<string | null>(null);
@@ -309,8 +317,15 @@ export default function App() {
   };
   // ── Push-to-talk ───────────────────────────────────────────
   const voiceReq = talkBack && pttSupported;
-  const sendTx = (text: string) => {
-    const r: any = (ceRef.current as any).voiceTx(text);
+  const sendTx = async (text: string) => {
+    let line = text;
+    if (aiAvail && aiOnRef.current) {
+      try {
+        const r = await fetch('/.netlify/functions/interpret', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, context: eRef.current.aiContext() }), signal: AbortSignal.timeout(5000) });
+        if (r.ok) { const j = await r.json(); if (typeof j.line === 'string' && j.line.trim()) line = j.line; }
+      } catch { /* fall back to the built-in parser */ }
+    }
+    const r: any = line === text ? (ceRef.current as any).voiceTx(text) : (ceRef.current as any).voiceTx(line, text);
     const msg = typeof r === 'string' ? r : r && r.ok === false ? r.reason : null;
     if (msg) flash(msg, 'warn');
   };
@@ -399,7 +414,7 @@ export default function App() {
   const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' ? view : tab;
   const pickTab = (t: Tab) => (view === 'all' ? (setTabRaw(t), setMon(t)) : setView(t));
 
-  const radio = <RadioPanel keyed={keyed} voiceOn={voiceOn} setVoiceOn={setVoiceOn} audioOn={audioOn && isMaster} talkBack={talkBack} setTalkBack={setTalkBack} />;
+  const radio = <RadioPanel keyed={keyed} voiceOn={voiceOn} setVoiceOn={setVoiceOn} audioOn={audioOn && isMaster} talkBack={talkBack} setTalkBack={setTalkBack} aiAvail={aiAvail} aiOn={aiOn} setAiOn={setAiOn} />;
   const alarms = <AlarmPanel silenced={silenced} setSilenced={setSilenced} />;
   const waiting = role === 'pending' || (role === 'replica' && !gotState.current);
 

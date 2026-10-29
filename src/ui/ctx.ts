@@ -5,7 +5,7 @@ import type { LatLng } from '../sim/types';
 export type Sel = { kind: 'dev' | 'load' | 'truck' | 'inc' | 'line' | 'sub'; id: string } | null;
 export interface SboReq { dev: string; action: 'open' | 'close' | 'lockout'; order?: string; viaOrder?: boolean; }
 
-export interface Ptt { supported: boolean; active: boolean; interim: string; error: string | null; start(): void; stop(): void; send(text: string): void; }
+export interface Ptt { supported: boolean; active: boolean; interim: string; error: string | null; start(): void; stop(): void; send(text: string): void | Promise<void>; }
 
 export interface Ctx {
   e: Engine;

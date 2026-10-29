@@ -4,8 +4,8 @@ import { useCtx } from './ctx';
 import type { Request } from '../sim/types';
 import { SayOr, PttBar, TypeTx, PhraseChips, CheatSheet } from './VoiceUi';
 
-export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setTalkBack }: {
-  keyed: string | null; voiceOn: boolean; setVoiceOn(v: boolean): void; audioOn: boolean; talkBack: boolean; setTalkBack(v: boolean): void;
+export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setTalkBack, aiAvail, aiOn, setAiOn }: {
+  keyed: string | null; voiceOn: boolean; setVoiceOn(v: boolean): void; audioOn: boolean; talkBack: boolean; setTalkBack(v: boolean): void; aiAvail: boolean; aiOn: boolean; setAiOn(v: boolean): void;
 }) {
   const { e, flash, setSel, setTab, ptt, voiceReq } = useCtx();
   const [unit, setUnit] = useState('');
@@ -47,6 +47,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
         <label className="aa" title="Talk to crews with your own voice (push-to-talk). Radio buttons become phrases to say.">
           <input type="checkbox" checked={talkBack} onChange={ev => setTalkBack(ev.target.checked)} /> Talk-back
         </label>
+        {aiAvail && <label className="aa" title="AI understands free-form speech and rewrites it into standard phraseology. The sim still enforces every rule."><input type="checkbox" checked={aiOn} onChange={ev => setAiOn(ev.target.checked)} /> AI assist</label>}
       </div>
       <div className="radio-head">
         <span className={`lamp ${lamp === 'tx' ? 'tx' : ''}`} title="TX" /><span className="dim" style={{ fontSize: 10 }}>TX</span>
