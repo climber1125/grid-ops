@@ -188,11 +188,14 @@ export class Engine {
   speaker(sp: Speaker) { return sp === 'C' ? CONTROL : sp === '249' ? 'SUPERVISOR 249' : `TRUCK ${sp}`; }
   /** True while handling the operator's own voice transmission: Control lines are not generated (the operator said them). */
   voiced = false;
+  /** When set, crew replies are captured here instead of being sent (so an AI can word them). */
+  holdBuf: { sp: Speaker; text: string; kind: 'routine' | 'switching' | 'emergency'; unit: string }[] | null = null;
   say(lines: [Speaker, string][], opts: { kind?: 'routine' | 'switching' | 'emergency'; start?: number; unit?: string } = {}): number {
     let at = opts.start ?? 0;
     if (this.voiced) lines = lines.filter(l => l[0] !== 'C');
     else if (this.s.voiceRadio) lines = lines.filter(l => l[0] !== 'C' || !/^(Copy|That's correct)/.test(l[1])); // operator gives their own acknowledgments
     const unit = opts.unit ?? (lines.find(l => l[0] !== 'C')?.[0] ?? '');
+    if (this.holdBuf) { for (const [sp, text] of lines) this.holdBuf.push({ sp, text, kind: opts.kind ?? 'routine', unit }); return 0; }
     for (const [sp, text] of lines) {
       this.schedule(at, 'radio', { sp, text, kind: opts.kind ?? 'routine', unit });
       at += 2.2 + text.length / 20;
@@ -1493,6 +1496,38 @@ export class Engine {
       pending: this.s.requests.filter(r => r.status === 'Pending').map(r => ({ truck: r.truck, type: r.type, dev: r.dev ?? null })),
       repeatBack: Object.values(this.s.orders).filter(o => o.status === 'Active' && o.steps[o.cur]?.status === 'RepeatBack').map(o => ({ truck: o.steps[o.cur].exec, step: `${o.steps[o.cur].action} ${o.steps[o.cur].dev}` })),
       activeStep: Object.values(this.s.orders).filter(o => o.status === 'Active').map(o => ({ truck: o.steps[o.cur]?.exec, step: `${o.steps[o.cur]?.action} ${o.steps[o.cur]?.dev}` })),
+      emergency: this.s.scen.flags.emT !== undefined && this.s.scen.flags.confT === undefined,
+    };
+  }
+
+  /** Run an operator transmission but capture the crew's replies for AI wording. */
+  voiceTxHeld(text: string, display?: string) {
+    this.holdBuf = [];
+    let err: string | null = null;
+    try { err = this.voiceTx(text, display); } finally { /* keep buffer */ }
+    const lines = this.holdBuf; this.holdBuf = null;
+    return { err, lines };
+  }
+  /** Send captured (or AI-worded) crew lines to the radio. */
+  emitHeld(lines: { sp: Speaker; text: string; kind: 'routine' | 'switching' | 'emergency'; unit: string }[]) {
+    let at = 1.2;
+    for (const l of lines) { this.schedule(at, 'radio', { sp: l.sp, text: l.text, kind: l.kind, unit: l.unit }); at += 2.2 + l.text.length / 20; }
+    this.bump();
+  }
+  /** A crew reply worded by the AI. Only rostered units can speak. */
+  crewSay(unit: string, text: string, kind: 'routine' | 'switching' | 'emergency' = 'routine') {
+    if (unit !== '249' && !this.s.trucks[unit]) return;
+    this.emitHeld([{ sp: unit as Speaker, text: text.slice(0, 280), kind, unit }]);
+  }
+  /** Rich, read-only snapshot for the AI crew voice. */
+  aiCrewContext(unit: string | null) {
+    const t = unit ? this.s.trucks[unit] : null;
+    const inc = t?.task?.kind === 'incident' ? this.s.incidents[t.task.id] : null;
+    return {
+      time: this.hhmm(),
+      truck: t ? { id: t.id, crew: t.crew, status: t.status, location: this.locOf(t.pos), task: t.task, commOk: t.comm } : null,
+      incident: inc ? { id: inc.id, status: inc.status, stage: inc.stage, device: inc.predDev, customersOut: inc.custOut, hazard: inc.hazard } : null,
+      recentRadio: this.s.radio.slice(-8).map(m => `${m.from}: ${m.text}`),
       emergency: this.s.scen.flags.emT !== undefined && this.s.scen.flags.confT === undefined,
     };
   }

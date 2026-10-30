@@ -325,6 +325,27 @@ export default function App() {
         if (r.ok) { const j = await r.json(); if (typeof j.line === 'string' && j.line.trim()) line = j.line; }
       } catch { /* fall back to the built-in parser */ }
     }
+    const eng = eRef.current;
+    if (aiAvail && aiOnRef.current && roleRef.current === 'master') {
+      // AI crew voice: the sim acts first (authoritative), the AI words the replies.
+      const { err, lines } = eng.voiceTxHeld(line, line === text ? undefined : text);
+      const unit = eng.s.radioCtx?.unit ?? null;
+      try {
+        const r = await fetch('/.netlify/functions/crew', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ said: text, line, engineLines: lines.map(l => ({ unit: l.unit, text: l.text })), engineError: err, context: { units: Object.keys(eng.s.trucks), ...eng.aiCrewContext(unit) } }), signal: AbortSignal.timeout(7000) });
+        const j = r.ok ? await r.json() : null;
+        if (j && Array.isArray(j.replies)) {
+          const kind = lines[0]?.kind ?? 'routine';
+          for (const x of j.replies) eng.crewSay(x.unit, x.text, kind);
+          if (!j.replies.length) eng.emitHeld([]);
+          if (err) flash(err, 'warn');
+          setVer(v => v + 1);
+          return;
+        }
+      } catch { /* fall through to built-in replies */ }
+      eng.emitHeld(lines);
+      if (err) flash(err, 'warn');
+      return;
+    }
     const r: any = line === text ? (ceRef.current as any).voiceTx(text) : (ceRef.current as any).voiceTx(line, text);
     const msg = typeof r === 'string' ? r : r && r.ok === false ? r.reason : null;
     if (msg) flash(msg, 'warn');

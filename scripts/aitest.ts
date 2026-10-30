@@ -1,0 +1,13 @@
+import { Engine } from '../src/sim/engine';
+const e = Engine.create('A', 1001);
+e.s.paused = false;
+for (let i = 0; i < 400; i++) e.tick(250);
+const inc = e.openIncidents()[0];
+const unit = Object.keys(e.s.trucks)[0];
+const before = e.s.radio.length;
+const r = e.voiceTxHeld(`Truck ${unit}, Sparks Control, respond to ${inc ? inc.id : 'INC-4101'}`);
+console.log('held lines', r.lines.length, 'err', r.err, 'held leaked into radio?', e.s.radio.length - before);
+e.crewSay(unit, 'Control, ' + unit + ', copy, heading that way.');
+for (let i = 0; i < 80; i++) e.tick(250);
+console.log(e.s.radio.slice(before).map(m => `${m.kind}|${m.from}: ${m.text}`));
+console.log(JSON.stringify(e.aiCrewContext(unit)).slice(0, 300));
