@@ -90,6 +90,7 @@ export default function App() {
   const [showScen, setShowScen] = useState(false);
   const [showAar, setShowAar] = useState(false);
   const [showMon, setShowMon] = useState(false);
+  const [showEmg, setShowEmg] = useState(false);
   const [showObj, setShowObj] = useState(true);
   const [audioOn, setAudioOn] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
@@ -429,6 +430,7 @@ export default function App() {
   const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'], mons = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   const objs = useMemo(() => e.scen.objectives, [e, s.scenario]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const emgActive = (s.scen.flags.emT !== undefined && s.scen.flags.confT === undefined) || (!!s.scen.flags.cdUnit && !s.scen.flags.cdDone);
   const compact = view === 'all' && narrow;
   const wsCls = view === 'all' ? `ws ${compact ? 'compact' : ''} ${focus && !narrow ? 'focus' : ''}` : `ws single v-${view}`;
   const showMain = view === 'all' || view === 'gis' || view === 'scada' || view === 'sw';
@@ -473,6 +475,7 @@ export default function App() {
             : <button className="btn on" onClick={() => { setAudioOn(false); player.current.stop(); }}>Audio on</button>)}
           <button className="btn" onClick={() => saveState('manual', s).then(() => { setSaved(x => ({ ...x, manual: Date.now() })); flash('Session saved to this browser (IndexedDB)', 'good'); })}>Save</button>
           {view === 'all' && !narrow && <button className={`btn ${focus ? 'on' : ''}`} onClick={() => setFocus(!focus)}>{focus ? 'All panels' : 'Map focus'}</button>}
+          <button className={`btn danger ${emgActive ? 'emg-live' : ''}`} onClick={() => setShowEmg(!showEmg)} title="Emergency tools: emergency traffic, 911, crew-down drill">⚠ EMERGENCY</button>
           <button className={`btn ${showMon ? 'on' : ''}`} onClick={() => setShowMon(!showMon)}>Monitors</button>
           <button className="btn" title={theme === 'dark' ? 'Light mode (projectors / bright rooms)' : 'Dark mode (monitors)'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '☾'}</button>
           <button className="btn" title="Full screen this window" onClick={() => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => undefined); }}>⛶</button>
@@ -540,6 +543,19 @@ export default function App() {
         {view === 'rel' && <div className="monwrap"><CrewBoard initial="rel" /></div>}
         {view === 'alarms' && <div className="monwrap">{alarms}</div>}
         {!showMain && toasts.length > 0 && <div className="toasts fixed">{toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}</div>}
+
+        {showEmg && (
+          <div className="monmenu emgmenu">
+            <div className="sec-t" style={{ marginTop: 0 }}>Emergency</div>
+            <div className="monbtns" style={{ gridTemplateColumns: '1fr' }}>
+              <button className="btn danger" onClick={() => { const r = (ce as any).declareEmergency(); if (typeof r === 'string') flash(r, 'warn'); setShowEmg(false); }}>Declare emergency traffic (clear the channel)</button>
+              <button className="btn danger" onClick={() => { (ce as any).notify911(); flash('911 called — EMS requested', 'alarm'); setShowEmg(false); }}>☎ Call 911 / EMS</button>
+              {s.scen.flags.emT !== undefined && s.scen.flags.confT === undefined && <button className="btn warn" onClick={() => { (ce as any).confirmDead(); setShowEmg(false); }}>Tell crew the line is dead &amp; locked out</button>}
+              <button className="btn" onClick={() => { const r = (ce as any).crewDownDrill(); if (typeof r === 'string') flash(r, 'warn'); setShowEmg(false); }}>Training: crew member hurt (drill)</button>
+            </div>
+            <div className="dim" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.45 }}>The drill makes a working crew call a mayday in any scenario. Respond: emergency traffic, 911, send a second unit.</div>
+          </div>
+        )}
 
         {showMon && (
           <div className="monmenu">

@@ -1,0 +1,12 @@
+import { Engine } from '../src/sim/engine';
+const e = Engine.create('A', 1001); e.s.paused = false;
+for (let i = 0; i < 400; i++) e.tick(250);
+console.log('start', e.crewDownDrill());
+console.log('again', e.crewDownDrill());
+for (let i = 0; i < 200; i++) e.tick(250);
+console.log('nags', e.s.radio.filter(m => /911/.test(m.text)).length);
+e.declareEmergency(); e.notify911();
+for (let i = 0; i < 4 * 800; i++) e.tick(250);
+const F = e.s.scen.flags;
+console.log('done', F.cdDone, 'ems', F.cdEms, 'unit', F.cdUnit, e.s.trucks[F.cdUnit].status, 'alarm', e.s.alarms.some(a => a.key === 'mayday-cd' && a.active));
+console.log(e.s.radio.slice(-6).map(m => m.from + ': ' + m.text.slice(0, 70)));

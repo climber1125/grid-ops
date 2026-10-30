@@ -1052,6 +1052,7 @@ export class Engine {
       case 'woPick': this.woPick(d.truck, d.tok); break;
       case 'gen': this.handleGen(d.g); break;
       case 'scn': this.scen.event?.(this, d.name, d); break;
+      case 'cd': this.cdEvent(d.name); break;
       case 'autoApprove': { const r = this.s.requests.find(x => x.id === d.req); if (r?.status === 'Pending' && this.s.autoAssist) this.approve(d.req, true); break; }
       case 'autoVerify': { const inc = this.s.incidents[d.inc]; if (inc?.status === 'Restored' && this.s.autoAssist) { inc.status = 'Closed'; inc.closedT = this.s.t; inc.stage = 'Done'; inc.timeline.push({ t: this.s.t, text: 'Auto-verified by AMI — closed' }); } break; }
       case 'noResponse': this.log('RADIO', 'warn', `No response from Truck ${d.truck}`); this.radioNow('C', `Truck ${d.truck}, Sparks Control... nothing heard.`, 'system', d.truck); break;
@@ -1465,6 +1466,8 @@ export class Engine {
     this.log('SAFETY', 'alarm', '911 called by Sparks Control — EMS requested to the reported location');
     this.decision('Called 911 / EMS', true);
     this.scen.event?.(this, 'ems', {});
+    const F0 = this.s.scen.flags;
+    if (F0.cdUnit && F0.cdEms === undefined) { F0.cdEms = this.s.t; this.log('SAFETY', 'good', 'EMS dispatched by 911 — ETA about 7 minutes'); this.schedule(420, 'cd', { name: 'ems' }); }
     this.bump();
     return null;
   }
@@ -1474,8 +1477,48 @@ export class Engine {
     this.decision('Declared emergency traffic', true);
     this.s.scen.flags.emergencyTraffic = true;
     this.scen.event?.(this, 'emergencyTraffic', {});
+    if (this.s.scen.flags.cdUnit && this.s.scen.flags.cdEt === undefined) { this.s.scen.flags.cdEt = this.s.t; this.say([['249', 'Sparks Control, Supervisor 249. Copy emergency traffic, I am rolling to that location now.']], { unit: '249', kind: 'emergency', start: 3 }); }
     this.bump();
     return null;
+  }
+  /** Training drill available in every scenario: a crew member is hurt (non-electrical injury). */
+  crewDownDrill(): string | null {
+    const F = this.s.scen.flags;
+    if (F.emT !== undefined || (F.cdUnit && !F.cdDone)) return 'An emergency is already in progress';
+    const live = Object.values(this.s.trucks).filter(t => t.comm && t.status !== 'Off Duty' && !t.sw && !t.clearance);
+    const busy = live.filter(t => t.task && t.task.kind !== 'home');
+    const t = (busy.length ? busy : live)[0];
+    if (!t) return 'No crew available to run the drill';
+    F.cdUnit = t.id; F.cdT = this.s.t; F.cdDone = false; F.cdEms = undefined; F.cdEt = undefined; F.cdNag = 0;
+    t.tok++; t.route = null; t.status = 'Working';
+    const loc = this.locOf(t.pos);
+    this.alarm('mayday-cd', `EMERGENCY — Truck ${t.id} crew member injured near ${loc}`, 1);
+    this.log('SAFETY', 'alarm', `EMERGENCY: Truck ${t.id} reports a crew member injured near ${loc}`);
+    this.say([[t.id, `Emergency, emergency, emergency! Sparks Control, ${t.id}!`], [t.id, `We have an injured man, he fell from the pole near ${loc}. He is down and in pain. We need EMS here now!`]], { unit: t.id, kind: 'emergency' });
+    this.schedule(75, 'cd', { name: 'nag' });
+    this.decision(`Crew-down drill started on ${t.id}`);
+    this.bump();
+    return null;
+  }
+  private cdEvent(name: string) {
+    const F = this.s.scen.flags; const t = F.cdUnit ? this.s.trucks[F.cdUnit] : null;
+    if (!t || F.cdDone) return;
+    if (name === 'nag') {
+      if (F.cdEms !== undefined || (F.cdNag ?? 0) >= 3) return;
+      F.cdNag = (F.cdNag ?? 0) + 1;
+      this.say([[t.id, `Sparks Control, ${t.id}! Has anyone called 911? We still have nobody here!`]], { unit: t.id, kind: 'emergency' });
+      this.schedule(75, 'cd', { name: 'nag' });
+    } else if (name === 'ems') {
+      this.say([[t.id, `Control, ${t.id}. EMS is on scene and taking over patient care.`]], { unit: t.id, kind: 'emergency' });
+      this.schedule(300, 'cd', { name: 'transport' });
+    } else if (name === 'transport') {
+      this.say([[t.id, `Control, ${t.id}. EMS is transporting to Sparks Regional. ${t.id} will be out of service.`]], { unit: t.id, kind: 'emergency' });
+      if (t.task?.kind === 'incident') { const inc = this.s.incidents[t.task.id]; if (inc) { inc.crew = null; if (inc.status !== 'Restored' && inc.status !== 'Closed') inc.status = 'New'; inc.timeline.push({ t: this.s.t, text: `Truck ${t.id} out of service (crew injury)` }); } }
+      t.task = null; t.status = 'Off Duty'; t.tok++; t.route = null;
+      F.cdDone = true; this.clearAlarm('mayday-cd');
+      this.decision(`Crew-down drill complete — 911 called ${F.cdEms !== undefined ? Math.round(F.cdEms - F.cdT) + 's after the call' : 'never'}`, F.cdEms !== undefined && F.cdEms - F.cdT < 120);
+    }
+    this.bump();
   }
   /** Tell the crew at an emergency that the line is dead (rescue scenario). */
   confirmDead(): string | null {

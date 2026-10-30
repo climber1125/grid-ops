@@ -21,7 +21,7 @@ export const ACTIONS = new Set([
   'approve', 'deny', 'releaseClearance', 'newOrder', 'addStep', 'removeStep', 'activateOrder', 'cancelOrder',
   'issueStep', 'confirmRepeat', 'verifyIncident', 'decision', 'setSpeed', 'setPaused', 'setAutoAssist',
   'rosterAdd', 'rosterEdit', 'rosterRemove', 'lockoutDevice', 'releaseLockout', 'setNonReclose', 'notify911',
-  'declareEmergency', 'confirmDead', 'setVoiceRadio', 'voiceTx', 'setTutStep',
+  'declareEmergency', 'crewDownDrill', 'confirmDead', 'setVoiceRadio', 'voiceTx', 'setTutStep',
 ]);
 
 export type Msg =
