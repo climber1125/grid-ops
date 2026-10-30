@@ -127,9 +127,9 @@ export default function App() {
 
   const flash = (text: string, level: 'info' | 'warn' | 'alarm' | 'good' = 'info') => setToasts(t => [...t, { id: Date.now() + Math.random(), text, level, t: eRef.current.hhmm(), born: Date.now() }].slice(-5));
 
-  const start = (id: string, seed: number) => {
-    if (roleRef.current === 'replica') { post({ type: 'start', from: WIN_ID, id, seed }); setShowScen(false); return; }
-    const ne = Engine.create(id, seed); applyRoster(ne);
+  const start = (id: string, seed: number, emg?: number) => {
+    if (roleRef.current === 'replica') { post({ type: 'start', from: WIN_ID, id, seed, emg }); setShowScen(false); return; }
+    const ne = Engine.create(id, seed); applyRoster(ne); if (emg && emg > 0) ne.scheduleDrill(emg);
     setE(ne); setShowScen(false); setShowAar(false); if (viewRef.current === 'all') setTabRaw('gis');
   };
   const loadInto = (state: any) => {
@@ -229,7 +229,7 @@ export default function App() {
           window.focus();
           break;
         }
-        case 'start': if (me === 'master') start(m.id, m.seed); break;
+        case 'start': if (me === 'master') start(m.id, m.seed, m.emg); break;
         case 'load': if (me === 'master') loadInto(m.state); break;
       }
     };

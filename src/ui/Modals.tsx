@@ -61,12 +61,15 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
 }
 
 export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLoadManual }: {
-  current: string; onStart(id: string, seed: number): void; onClose(): void;
+  current: string; onStart(id: string, seed: number, emg?: number): void; onClose(): void;
   saved: { autosave?: number; manual?: number }; onResume(): void; onLoadManual(): void;
 }) {
   const [sel, setSel] = useState(current);
   const [seed, setSeed] = useState(String(1000 + Math.floor(Math.random() * 9000)));
+  const [emgOn, setEmgOn] = useState(false);
+  const [emgWhen, setEmgWhen] = useState('900');
   const sc = SCENARIOS[sel];
+  const emgDelay = () => (emgWhen === 'rand' ? 300 + Math.floor(Math.random() * 2100) : Number(emgWhen));
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal wide" onClick={ev => ev.stopPropagation()}>
@@ -82,6 +85,17 @@ export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLo
           </div>
           <div className="sec-t">Briefing — {sc.name}</div>
           <div style={{ fontSize: 12 }}>{sc.brief}</div>
+          <div className="sec-t">Add an emergency</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+            <label><input type="checkbox" checked={emgOn} onChange={ev => setEmgOn(ev.target.checked)} /> A crew member gets hurt during this scenario</label>
+            {emgOn && <>
+              <span className="dim">strikes</span>
+              <select value={emgWhen} onChange={ev => setEmgWhen(ev.target.value)}>
+                <option value="300">after 5 min</option><option value="900">after 15 min</option><option value="1800">after 30 min</option><option value="rand">at a random time (5–40 min)</option>
+              </select>
+              <span className="dim">You won't be told when. Emergency traffic, 911 and a second unit are on you.</span>
+            </>}
+          </div>
           <div className="sec-t">Objectives</div>
           {sc.objectives.map(o => <div key={o.id} className="obj"><span className="dim mono">{o.id}</span>{o.text}</div>)}
         </div>
@@ -92,7 +106,7 @@ export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLo
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span className="dim">Seed</span><input value={seed} onChange={ev => setSeed(ev.target.value.replace(/\D/g, ''))} style={{ width: 80 }} className="mono" />
-            <button className="btn pri" onClick={() => onStart(sel, Number(seed) || 1)}>Start scenario {sel}</button>
+            <button className="btn pri" onClick={() => onStart(sel, Number(seed) || 1, emgOn ? emgDelay() : undefined)}>Start scenario {sel}{emgOn ? ' + emergency' : ''}</button>
           </div>
         </div>
       </div>

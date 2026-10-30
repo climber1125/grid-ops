@@ -1500,7 +1500,10 @@ export class Engine {
     this.bump();
     return null;
   }
+  /** Set up a crew-down emergency to strike `delaySec` into the exercise (chosen in the scenario picker). */
+  scheduleDrill(delaySec: number) { this.s.scen.flags.cdPlanned = delaySec; this.schedule(delaySec, 'cd', { name: 'start' }); }
   private cdEvent(name: string) {
+    if (name === 'start') { const r = this.crewDownDrill(); if (r && r.startsWith('No crew') && (this.s.scen.flags.cdRetry ?? 0) < 3) { this.s.scen.flags.cdRetry = (this.s.scen.flags.cdRetry ?? 0) + 1; this.schedule(120, 'cd', { name: 'start' }); } return; }
     const F = this.s.scen.flags; const t = F.cdUnit ? this.s.trucks[F.cdUnit] : null;
     if (!t || F.cdDone) return;
     if (name === 'nag') {

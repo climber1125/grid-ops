@@ -32,7 +32,7 @@ export type Msg =
   | { type: 'result'; to: string; text: string }
   | { type: 'sel'; from: string; sel: Sel }
   | { type: 'goto'; to: string; tab: 'gis' | 'scada' | 'sw'; prefill: { dev: string; action: 'open' | 'close' } | null }
-  | { type: 'start'; from: string; id: string; seed: number }
+  | { type: 'start'; from: string; id: string; seed: number; emg?: number }
   | { type: 'load'; from: string; state: any };
 
 export const WIN_ID = Math.random().toString(36).slice(2, 10);
