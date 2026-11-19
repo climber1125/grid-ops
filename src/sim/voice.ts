@@ -41,7 +41,12 @@ export function wordsToDigits(text: string): string {
   return out.join(' ');
 }
 
-export interface Parsed { norm: string; units: string[]; devs: string[]; incs: string[]; wos: string[]; feeders: string[]; }
+export interface Parsed { norm: string; units: string[]; devs: string[]; incs: string[]; wos: string[]; feeders: string[]; codes: string[]; }
+
+/** Words that mean the number after them is a device/unit/order number, not a 10-code. */
+const NUMW = '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:\\s+(?:one|two|three|four|five|six|seven|eight|nine))?|(?:zero|oh)\\s+(?:one|two|three|four|five|six|seven|eight|nine)|zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|\\d{1,2})';
+const TEN_RE = new RegExp(`(?<=\\s)(?:ten|10)\\s+(?:(?:code|dash)\\s+)?(${NUMW})(?=\\s)`, 'g');
+const NOT_CODE = new Set(['switch', 'tie', 'recloser', 'breaker', 'fuse', 'transformer', 'incident', 'ticket', 'order', 'orders', 'truck', 'unit', 'wo', 'inc', 's', 'r', 'cb', 'ts', 'f', 'tx', 'sierra', 'romeo', 'foxtrot', 'ironwood', 'bluestem', 'hollow', 'iw', 'bs', 'ch', 'supervisor']);
 
 /**
  * @param knownUnits truck numbers on the roster (to recognize bare numbers like "233")
@@ -52,7 +57,19 @@ export function parseRadio(raw: string, knownUnits: string[], knownDevs: (id: st
     .replace(/[’']/g, "'")
     .replace(/[^a-z0-9' -]+/g, ' ')
     .replace(/-/g, ' ')
-    .replace(/\bw\s+o\b/g, 'wo') + ' ';
+    .replace(/\bw\s+o\b/g, 'wo')
+    .replace(/\b(ten|10)\s+(code|dash)\b/g, '$1') + ' ';
+  // 10-codes first (before number words get merged): "ten twenty", "10-20", "10.4", "ten dash nineteen"
+  const codes: string[] = [];
+  t = ' ' + t.trim() + ' ';
+  t = t.replace(TEN_RE, (m: string, num: string, off: number) => {
+    const w = t.slice(0, off).trim().split(/\s+/).pop() ?? '';
+    if (NOT_CODE.has(w)) return m;
+    const d = wordsToDigits(num.trim());
+    if (!/^\d{1,2}$/.test(d)) return m;
+    codes.push(String(Number(d)));
+    return ` tencode${Number(d)} `;
+  });
   t = ' ' + wordsToDigits(t.trim()) + ' ';
   // spoken prefixes → letters
   t = t.replace(/\b(tie switch|tie|ts)\b/g, ' ts ').replace(/\b(sierra|switch)\b/g, ' s ').replace(/\b(romeo|recloser)\b/g, ' r ').replace(/\b(circuit breaker|breaker|cb)\b/g, ' cb ')
@@ -77,5 +94,5 @@ export function parseRadio(raw: string, knownUnits: string[], knownDevs: (id: st
   for (const m of t.matchAll(/\b(?:truck|unit)\s?(\d{2,4})\b/g)) add(units, m[1]);
   for (const m of t.matchAll(/\b(\d{2,4})\b/g)) if (knownUnits.includes(m[1])) add(units, m[1]);
   if (/\b(supervisor|2 49|249)\b/.test(t)) add(units, '249');
-  return { norm: t.replace(/\s+/g, ' ').trim(), units, devs, incs, wos, feeders };
+  return { norm: t.replace(/\s+/g, ' ').trim(), units, devs, incs, wos, feeders, codes };
 }

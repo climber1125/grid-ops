@@ -15,6 +15,7 @@ Rules:
 - Switching: "open S-2114" / "close R-2125" (IDs exactly as in context).
 - Emergency: "All units, Sparks Control, emergency traffic only". Line dead: "the line is dead, locked out".
 - Welfare: "check on Truck 233".
+- 10-codes (ten four, 10-20, ten nineteen...) pass through unchanged: "Truck 230, Sparks Control, ten twenty". Never turn "ten four" into a switching repeat-back confirmation.
 - If it makes no sense as a radio transmission, return it unchanged.
 Reply with JSON only: {"line":"..."}`;
 

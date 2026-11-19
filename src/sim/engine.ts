@@ -734,6 +734,15 @@ export class Engine {
     return `${tr.status.toLowerCase()}, ${loc}. Nothing on my plate.`;
   }
 
+  /** Status report when the operator already asked on the radio (voice / 10-code): crew answers directly. */
+  statusCheckVoiced(truckId: string) {
+    const tr = this.truck(truckId);
+    if (!tr) return;
+    this.s.metrics.contacts++;
+    this.say([[truckId, `${truckId}, ${this.progressReport(tr)}`], ['C', `Copy ${truckId}.`]], { start: 1.5, unit: truckId });
+    this.decision(`Radio status check with ${truckId}`);
+  }
+
   statusCheck(truckId: string) {
     const tr = this.truck(truckId);
     if (!tr) return;
@@ -1678,6 +1687,32 @@ export class Engine {
       const cl = myReq('close');
       if (cl && has(/\b(permission granted|granted|go ahead|ok(ay)? to (close|refuse|re fuse)|clear to close|close it|you can close|you may close)\b/)) return done(this.approve(cl.id));
       if (cl && has(/\b(hold|stand ?by|not yet|do not close|don't close)\b/)) return done(this.deny(cl.id));
+      // 5b. 10-codes
+      if (p.codes.length) {
+        const code = p.codes[0];
+        const hhmm = this.hhmm();
+        switch (code) {
+          case '4': {
+            if (rb) { reply(unit, `Sparks Control, ${unit}. Is my repeat-back correct? Say "correct" or "negative".`, 'switching'); return done(null); }
+            if (rel) return done(this.approve(rel.id));
+            return done(null);
+          }
+          case '20': case '8': case '97': case '98': case '6': case '10': case '23': this.statusCheckVoiced(unit); return done(null);
+          case '9': {
+            const last = [...this.s.radio].reverse().find(m => m.unit === unit && m.from !== CONTROL && m.kind !== 'operator');
+            reply(unit, last ? `Sparks Control, ${unit}. I said: ${last.text.replace(/^(Sparks Control, )?\d+[.,]?\s*/i, '')}` : `Sparks Control, ${unit}. Nothing outstanding from me.`);
+            return done(null);
+          }
+          case '12': reply(unit, `${unit}, standing by.`); return done(null);
+          case '19': if (this.truck(unit)?.task?.kind === 'home') { reply(unit, `${unit}, already returning to the service center.`); return done(null); } return done(this.recall(unit));
+          case '21': this.cellCall(unit); return done(null);
+          case '33': this.declareEmergency(); return done(null);
+          case '36': reply(unit, `${unit}, time is ${hhmm}.`); return done(null);
+          default:
+            reply(unit, `Sparks Control, ${unit}. Say again, I don't copy that ten code. Use plain language.`);
+            return done(`10-${code} isn't one I know. Known: 4, 6, 8, 9, 10, 12, 19, 20, 21, 23, 33, 36, 97, 98`);
+        }
+      }
       // 6. Switching instruction
       const act = has(/\bopen\b/) ? 'open' : has(/\bclose\b/) ? 'close' : null;
       if (act && p.devs.length && unit !== '249') {

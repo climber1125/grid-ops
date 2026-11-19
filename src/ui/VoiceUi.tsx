@@ -81,6 +81,7 @@ const SHEET: [string, string[]][] = [
   ['Crew requests', ['Close fuse: “Permission granted to close.” or “Hold, stand by.”', 'Clearance: “Clearance is issued on that section.” or “Unable, stand by.”', 'Release: “Copy, clearance released.”', 'Hot-line: “Hot-line tag is on, you’re clear for energized work.”']],
   ['Switching orders', ['“Truck 230, open switch 2 1 1 4.” (must match the active order step)', 'Crew repeats it back → “Correct, proceed.” or “Negative, say again.”']],
   ['Emergency', ['“All units, Sparks Control, emergency traffic only.”', 'Then: “R 2125 is open and locked out, the line is dead.”', 'Use the ☎ 911 button for EMS.']],
+  ['10-codes', ['Say or type them: “Truck 230, ten twenty” / “10-20” / “10.20”.', '10-4 acknowledged · 10-20 location & what you’re doing · 10-8 / 10-97 / 10-98 status · 10-9 say again · 10-12 stand by · 10-19 return to the shop · 10-21 call by phone · 10-33 emergency traffic · 10-36 time', '10-4 does not confirm a switching repeat-back. Say “correct” or “negative”.']],
   ['Welfare', ['“Truck 230, check on Truck 233.”']],
   ['Number tips', ['Say numbers like a dispatcher: “twenty one fourteen”, “two thirty three”.', 'Prefixes: switch, tie switch, recloser, breaker, fuse, transformer, incident.', 'Feeders: Cedar Hollow, Ironwood, Bluestem.']],
 ];
