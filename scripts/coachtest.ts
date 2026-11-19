@@ -10,7 +10,7 @@ function run(id: string) {
 const t = run('T'), a = run('A');
 console.log('T warn:', t?.title);
 console.log('A warn:', a);
-if (!t || a) { console.error('FAIL'); process.exit(1); }
+if (!t || a) { throw new Error('FAIL'); }
 const e = Engine.create('T', 1) as any; e.violation('tag','x'); e.dismissCoach();
-if (e.s.scen.flags.coachWarn) { console.error('FAIL dismiss'); process.exit(1); }
+if (e.s.scen.flags.coachWarn) { throw new Error('FAIL dismiss'); }
 console.log('PASS');
