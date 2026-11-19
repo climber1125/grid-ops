@@ -1708,7 +1708,7 @@ export class Engine {
           }
           case '12': reply(unit, `${unit}, standing by.`); return done(null);
           case '19': if (this.truck(unit)?.task?.kind === 'home') { reply(unit, `${unit}, already returning to the service center.`); return done(null); } return done(this.recall(unit));
-          case '21': this.cellCall(unit); return done(null);
+          case '21': this.cellCall(unit); reply(unit, `${unit}, 10-4, I'll give you a call.`); return done(null);
           case '33': this.declareEmergency(); return done(null);
           case '36': reply(unit, `${unit}, time is ${hhmm}.`); return done(null);
           default:
@@ -1765,6 +1765,9 @@ export class Engine {
         if (err) reply(unit, `Sparks Control, ${unit}. Unable, ${err.toLowerCase()}.`);
         return done(err);
       }
+      // 9b. Call me / stand by (plain language for 10-21 and 10-12)
+      if (has(/\b(call (me|my|the (office|control|desk|dispatcher))|give (me|us|control) a (call|ring)|(call|phone|ring|text) (me|my (phone|cell))|my (phone|cell)|land ?line)\b/)) { this.cellCall(unit); reply(unit, `${unit}, 10-4, I'll give you a call.`); return done(null); }
+      if (has(/^(\w+ )?(\d+ )?(stand ?by|standby|hold (on|tight|up)?|wait)\b/) || has(/\b(stand ?by|standby)\b/) && n.split(' ').length <= 6) { reply(unit, `${unit}, standing by.`); return done(null); }
       // 10. Status
       if (has(/\b(status|where are you|what's your|whats your|location|your 20|20)\b/)) { this.statusCheck(unit); return done(null); }
       // 11. Call-up only
