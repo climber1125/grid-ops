@@ -1574,6 +1574,7 @@ export class Engine {
       truck: t ? { id: t.id, crew: t.crew, status: t.status, location: this.locOf(t.pos), task: t.task, commOk: t.comm } : null,
       incident: inc ? { id: inc.id, status: inc.status, stage: inc.stage, device: inc.predDev, customersOut: inc.custOut, hazard: inc.hazard } : null,
       recentRadio: this.s.radio.slice(-8).map(m => `${m.from}: ${m.text}`),
+      workOrders: Object.values(this.s.workorders).filter(w => w.status !== 'Done').slice(0, 10).map(w => ({ id: w.id, type: w.type, status: w.status, unit: w.truck ?? null })),
       emergency: this.s.scen.flags.emT !== undefined && this.s.scen.flags.confT === undefined,
     };
   }
@@ -1650,6 +1651,16 @@ export class Engine {
       if (other && has(/\b(check on|welfare|make contact|go find|check the crew)\b/)) return done(this.welfareCheck(unit, other));
       // 8. Recall
       if (has(/\b(return|head back|go back|come back|come in)\b/) && has(/\b(shop|yard|service center|barn|base|home)\b/)) return done(this.recall(unit));
+      // 8b. Dispatch to a work order
+      if (p.wos.length > 0 || has(/\bwo\b/)) {
+        if (unit === '249') { reply(unit, 'Sparks Control, 249. Work orders go to a crew unit, not the supervisor.'); return done(null); }
+        const woId = p.wos[0];
+        if (!woId) { reply(unit, `Sparks Control, ${unit}. Say again the work order number.`); return done('Say the work order number, e.g. "work order 4471"'); }
+        if (!this.s.workorders[woId]) { reply(unit, `Sparks Control, ${unit}. I don't show ${woId}. Say again.`); return done(`No such work order ${woId}`); }
+        const err = this.dispatchWo(unit, woId);
+        if (err) reply(unit, `Sparks Control, ${unit}. Unable. ${err}.`);
+        return done(err);
+      }
       // 9. Dispatch to an incident
       const wantsDispatch = p.incs.length > 0 || has(/\b(respond|go to|head (over )?to|en route|check (on|out)|investigate|take (the|that)|go check|go look|outage|lockout|trouble)\b/);
       if (wantsDispatch && unit !== '249') {
@@ -1677,6 +1688,43 @@ export class Engine {
     } finally {
       this.voiced = false;
     }
+  }
+
+  /** Dispatch a unit to a routine work order (spoken or from the Work orders tab). */
+  dispatchWo(truckId: string, woId: string): string | null {
+    const tr = this.truck(truckId), wo = this.s.workorders[woId];
+    if (!tr) return 'Unknown unit';
+    if (!wo) return `No work order ${woId}`;
+    if (wo.status === 'Done') return `${woId} is already complete`;
+    if (tr.status === 'Off Duty') return `${truckId} is off duty`;
+    if (tr.clearance) return `${truckId} holds clearance ${tr.clearance} — cannot reassign`;
+    if (tr.sw) return `${truckId} is performing switching`;
+    if (tr.task?.kind === 'workorder' && tr.task.id === woId) return `${truckId} is already on ${woId}`;
+    if (!tr.comm) {
+      this.say([['C', `Truck ${truckId}, Sparks Control.`]], { unit: truckId });
+      this.schedule(14, 'noResponse', { truck: truckId });
+      this.s.metrics.contacts++;
+      return `No response from ${truckId}`;
+    }
+    // release whoever was on this order, and whatever this unit was doing
+    if (wo.truck && wo.truck !== truckId) { const o = this.truck(wo.truck); if (o && o.task?.kind === 'workorder' && o.task.id === woId) { o.task = null; o.tok++; o.route = null; o.status = 'Available'; this.schedule(120, 'woPick', { truck: o.id, tok: o.tok }); } }
+    const prevWo = tr.task?.kind === 'workorder' ? tr.task.id : null;
+    if (prevWo && this.s.workorders[prevWo]) { this.s.workorders[prevWo].status = 'Open'; this.s.workorders[prevWo].truck = undefined; }
+    if (tr.task?.kind === 'incident') { const old = this.s.incidents[tr.task.id]; if (old && old.crew === truckId) { old.crew = null; if (old.status !== 'Restored' && old.status !== 'Closed') old.status = 'New'; } }
+    wo.status = 'Assigned'; wo.truck = truckId;
+    tr.task = { kind: 'workorder', id: woId }; tr.tok++; tr.route = null; tr.status = 'Dispatched'; tr.waitIso = null;
+    this.decision(`Dispatched Truck ${truckId} to ${woId} (${wo.type})`);
+    const end = this.voiced
+      ? this.say([[truckId, `${truckId} copies${prevWo ? `, breaking off ${prevWo}` : ''}, responding to ${woId}, ${wo.type}, ${wo.loc}. En route.`]], { unit: truckId }) + 2
+      : this.say([
+        ['C', `Truck ${truckId}, Sparks Control.`],
+        [truckId, `${truckId}, go ahead.`],
+        ['C', `${truckId}, respond to work order ${woId}, ${wo.type}, ${wo.loc}.`],
+        [truckId, `${truckId} copies${prevWo ? `, breaking off ${prevWo}` : ''}, en route.`],
+      ], { unit: truckId });
+    this.schedule(end - 1, 'crew', { truck: truckId, tok: tr.tok, step: 'woDepart' });
+    this.bump();
+    return null;
   }
 
   /** Exercise-period reliability indices (IEEE 1366 style, simplified: every interruption counts as sustained). */

@@ -41,7 +41,7 @@ export function wordsToDigits(text: string): string {
   return out.join(' ');
 }
 
-export interface Parsed { norm: string; units: string[]; devs: string[]; incs: string[]; feeders: string[]; }
+export interface Parsed { norm: string; units: string[]; devs: string[]; incs: string[]; wos: string[]; feeders: string[]; }
 
 /**
  * @param knownUnits truck numbers on the roster (to recognize bare numbers like "233")
@@ -51,16 +51,17 @@ export function parseRadio(raw: string, knownUnits: string[], knownDevs: (id: st
   let t = ' ' + raw.toLowerCase()
     .replace(/[’']/g, "'")
     .replace(/[^a-z0-9' -]+/g, ' ')
-    .replace(/-/g, ' ') + ' ';
+    .replace(/-/g, ' ')
+    .replace(/\bw\s+o\b/g, 'wo') + ' ';
   t = ' ' + wordsToDigits(t.trim()) + ' ';
   // spoken prefixes → letters
   t = t.replace(/\b(tie switch|tie|ts)\b/g, ' ts ').replace(/\b(sierra|switch)\b/g, ' s ').replace(/\b(romeo|recloser)\b/g, ' r ').replace(/\b(circuit breaker|breaker|cb)\b/g, ' cb ')
     .replace(/\b(fuse|foxtrot)\b/g, ' f ').replace(/\b(transformer|xfmr|tx)\b/g, ' tx ')
-    .replace(/\b(incident|ticket|inc)\b/g, ' inc ').replace(/\b(cedar hollow)\b/g, ' ch ').replace(/\b(ironwood)\b/g, ' iw ').replace(/\b(bluestem|blue stem)\b/g, ' bs ')
+    .replace(/\b(incident|ticket|inc)\b/g, ' inc ').replace(/\b(work orders?|workorders?|w o|wo)\b/g, ' wo ').replace(/\b(cedar hollow)\b/g, ' ch ').replace(/\b(ironwood)\b/g, ' iw ').replace(/\b(bluestem|blue stem)\b/g, ' bs ')
     .replace(/\s+/g, ' ');
   // merge digit groups that follow a prefix: "s 21 14" → "s 2114"
-  t = t.replace(/\b(s|r|cb|ts|f|tx|inc|ch|iw|bs|truck|unit)\s+((?:\d+\s*)+)/g, (_m, p, d) => `${p} ${String(d).replace(/\s+/g, '')} `);
-  const devs: string[] = [], incs: string[] = [], feeders: string[] = [], units: string[] = [];
+  t = t.replace(/\b(s|r|cb|ts|f|tx|inc|wo|ch|iw|bs|truck|unit)\s+((?:\d+\s*)+)/g, (_m, p, d) => `${p} ${String(d).replace(/\s+/g, '')} `);
+  const devs: string[] = [], incs: string[] = [], wos: string[] = [], feeders: string[] = [], units: string[] = [];
   const add = (arr: string[], v: string) => { if (!arr.includes(v)) arr.push(v); };
   for (const m of t.matchAll(/\b(s|r|cb|ts|f|tx)\s?(\d{2,5})\b/g)) {
     const pre = { s: 'S', r: 'R', cb: 'CB', ts: 'TS', f: 'F', tx: 'TX' }[m[1] as 's'];
@@ -72,8 +73,9 @@ export function parseRadio(raw: string, knownUnits: string[], knownDevs: (id: st
     if (knownDevs(id)) { add(feeders, `${m[1].toUpperCase()}-${m[2]}`); add(devs, id); }
   }
   for (const m of t.matchAll(/\binc\s?(\d{4})\b/g)) add(incs, `INC-${m[1]}`);
+  for (const m of t.matchAll(/\bwo\s?(\d{3,5})\b/g)) add(wos, `WO-${m[1]}`);
   for (const m of t.matchAll(/\b(?:truck|unit)\s?(\d{2,4})\b/g)) add(units, m[1]);
   for (const m of t.matchAll(/\b(\d{2,4})\b/g)) if (knownUnits.includes(m[1])) add(units, m[1]);
   if (/\b(supervisor|2 49|249)\b/.test(t)) add(units, '249');
-  return { norm: t.replace(/\s+/g, ' ').trim(), units, devs, incs, feeders };
+  return { norm: t.replace(/\s+/g, ' ').trim(), units, devs, incs, wos, feeders };
 }

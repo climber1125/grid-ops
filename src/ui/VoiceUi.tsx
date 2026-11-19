@@ -54,8 +54,10 @@ export function PhraseChips({ unit }: { unit: string }) {
   const { ptt, e } = useCtx();
   const u = unit === '249' ? 'Supervisor 249' : `Truck ${unit}`;
   const inc = e.openIncidents().filter(i => i.status !== 'Restored' && !i.crew).sort((a, b) => a.priority - b.priority || a.t - b.t)[0];
+  const wo = Object.values(e.s.workorders).filter(w => w.status === 'Open').sort((a, b) => a.id.localeCompare(b.id))[0];
   const chips: [string, string][] = [
     ['Status?', 'status'],
+    ...(wo ? [[`Respond to ${wo.id}`, `respond to work order ${wo.id.replace('WO-', '')}`] as [string, string]] : []),
     ...(inc ? [[`Respond to ${inc.id}`, `respond to ${inc.id}`] as [string, string]] : []),
     ['Permission granted', 'permission granted to close'],
     ['Hold / stand by', 'hold, stand by'],
@@ -75,7 +77,7 @@ export function PhraseChips({ unit }: { unit: string }) {
 
 const SHEET: [string, string[]][] = [
   ['Always start with the unit', ['“Truck 233, Sparks Control.” (answer: “233, go ahead”)', 'Supervisor: “Supervisor 249, Sparks Control…”']],
-  ['Dispatch & status', ['“Truck 233, respond to incident 4101.”', '“Truck 233, go check S 2114.” (device instead of incident)', '“Truck 233, status?” / “what’s your 20?”', '“Truck 233, return to the shop.”']],
+  ['Dispatch & status', ['“Truck 233, can you respond to work order 4471.” (work orders are listed on the Work orders tab)', '“Truck 233, respond to incident 4101.”', '“Truck 233, go check S 2114.” (device instead of incident)', '“Truck 233, status?” / “what’s your 20?”', '“Truck 233, return to the shop.”']],
   ['Crew requests', ['Close fuse: “Permission granted to close.” or “Hold, stand by.”', 'Clearance: “Clearance is issued on that section.” or “Unable, stand by.”', 'Release: “Copy, clearance released.”', 'Hot-line: “Hot-line tag is on, you’re clear for energized work.”']],
   ['Switching orders', ['“Truck 230, open switch 2 1 1 4.” (must match the active order step)', 'Crew repeats it back → “Correct, proceed.” or “Negative, say again.”']],
   ['Emergency', ['“All units, Sparks Control, emergency traffic only.”', 'Then: “R 2125 is open and locked out, the line is dead.”', 'Use the ☎ 911 button for EMS.']],

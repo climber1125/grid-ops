@@ -2,6 +2,23 @@
 import { useState } from 'react';
 import { useCtx, age } from './ctx';
 import { RosterPanel, ReliabilityPanel } from './Fleet';
+import { SayOr } from './VoiceUi';
+
+function WoDispatch({ wo }: { wo: { id: string; truck?: string } }) {
+  const { e, flash, voiceReq } = useCtx();
+  const units = Object.values(e.s.trucks).filter(t => t.status !== 'Off Duty').sort((a, b) => a.id.localeCompare(b.id));
+  const [u, setU] = useState('');
+  const pick = u || units.find(t => t.status === 'Available' && t.id !== wo.truck)?.id || units[0]?.id || '';
+  if (!units.length) return null;
+  return (
+    <span style={{ display: 'inline-flex', gap: 3 }} onClick={ev => ev.stopPropagation()}>
+      <select value={pick} onChange={ev => setU(ev.target.value)} style={{ fontSize: 10 }}>{units.map(t => <option key={t.id} value={t.id}>{t.id}{t.status === 'Available' ? '' : ` (${t.status})`}</option>)}</select>
+      <SayOr phrase={`${pick}, respond to work order ${wo.id.replace('WO-', '')}`}>
+        <button className="btn sm pri" onClick={() => { const err = e.dispatchWo(pick, wo.id); if (err) flash(err, 'warn'); }}>Dispatch</button>
+      </SayOr>
+    </span>
+  );
+}
 
 export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'roster' | 'rel' }) {
   const { e, sel, setSel, flyTo } = useCtx();
@@ -46,8 +63,8 @@ export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'r
           </table>
         ) : tab === 'roster' ? <RosterPanel /> : tab === 'rel' ? <ReliabilityPanel /> : (
           <table className="grid">
-            <thead><tr><th>WO</th><th>Type</th><th>Location</th><th>Est.</th><th>Status</th><th>Unit</th></tr></thead>
-            <tbody>{wos.map(w => <tr key={w.id} className="row" onClick={() => flyTo(w.pos, 16)}><td className="mono">{w.id}</td><td>{w.type}</td><td>{w.loc}</td><td className="num">{Math.round(w.dur / 60)}m</td><td>{w.status}</td><td className="mono">{w.truck ?? '—'}</td></tr>)}</tbody>
+            <thead><tr><th>WO</th><th>Type</th><th>Location</th><th>Est.</th><th>Status</th><th>Unit</th><th>Dispatch</th></tr></thead>
+            <tbody>{wos.map(w => <tr key={w.id} className="row" onClick={() => flyTo(w.pos, 16)}><td className="mono">{w.id}</td><td>{w.type}</td><td>{w.loc}</td><td className="num">{Math.round(w.dur / 60)}m</td><td>{w.status}</td><td className="mono">{w.truck ?? '—'}</td><td><WoDispatch wo={w} /></td></tr>)}</tbody>
           </table>
         )}
       </div>
