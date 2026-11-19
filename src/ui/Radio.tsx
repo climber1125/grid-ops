@@ -47,6 +47,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
         <label className="aa" title="Talk to crews with your own voice (push-to-talk). Radio buttons become phrases to say.">
           <input type="checkbox" checked={talkBack} onChange={ev => setTalkBack(ev.target.checked)} /> Talk-back
         </label>
+        <label className="aa" title="Crews and Control use 10-codes on the radio (10-4, 10-97, 10-8…). You can use them either way."><input type="checkbox" checked={e.s.tenCodes !== false} onChange={ev => (e as any).setTenCodes(ev.target.checked)} /> 10-codes</label>
         {aiAvail && <label className="aa" title="AI understands free-form speech and rewrites it into standard phraseology. The sim still enforces every rule."><input type="checkbox" checked={aiOn} onChange={ev => setAiOn(ev.target.checked)} /> AI assist</label>}
       </div>
       <div className="radio-head">

@@ -194,6 +194,7 @@ export class Engine {
     let at = opts.start ?? 0;
     if (this.voiced) lines = lines.filter(l => l[0] !== 'C');
     else if (this.s.voiceRadio) lines = lines.filter(l => l[0] !== 'C' || !/^(Copy|That's correct)/.test(l[1])); // operator gives their own acknowledgments
+    if (this.s.tenCodes !== false) lines = lines.map(([sp, t]) => [sp, tenify(sp, t)] as [Speaker, string]);
     const unit = opts.unit ?? (lines.find(l => l[0] !== 'C')?.[0] ?? '');
     if (this.holdBuf) { for (const [sp, text] of lines) this.holdBuf.push({ sp, text, kind: opts.kind ?? 'routine', unit }); return 0; }
     for (const [sp, text] of lines) {
@@ -1587,6 +1588,7 @@ export class Engine {
     this.bump();
     return null;
   }
+  setTenCodes(on: boolean) { this.s.tenCodes = on; this.bump(); }
   setVoiceRadio(on: boolean) { this.s.voiceRadio = on; this.bump(); }
 
   // ── Operator voice transmissions ───────────────────────────
@@ -1629,6 +1631,7 @@ export class Engine {
     const inc = t?.task?.kind === 'incident' ? this.s.incidents[t.task.id] : null;
     return {
       time: this.hhmm(),
+      tenCodes: this.s.tenCodes !== false,
       progressReport: t ? this.progressReport(t) : null,
       truck: t ? { id: t.id, crew: t.crew, status: t.status, location: this.locOf(t.pos), task: t.task, commOk: t.comm } : null,
       incident: inc ? { id: inc.id, status: inc.status, stage: inc.stage, device: inc.predDev, customersOut: inc.custOut, hazard: inc.hazard } : null,
@@ -1934,6 +1937,17 @@ export class Engine {
     const idx = F.mainEls.findIndex(e => (this.T.els[e] as LineEl).from === n);
     return F.mainEls[Math.max(0, idx) + offset - 1];
   }
+}
+
+/** Dress radio lines in 10-codes (plain words stay alongside so nothing is lost). */
+function tenify(sp: string, t: string): string {
+  if (sp === 'C') return t.replace(/^Copy,? (\w+)/, '10-4, $1').replace(/^Correct,? /, '10-4, correct, ');
+  return t
+    .replace(/\b(\d{2,4}) copies\b/, '$1, 10-4')
+    .replace(/\b(\d{2,4}) on location\b/, '$1, 10-97, on location')
+    .replace(/, available([.,])/, ', 10-8, available$1')
+    .replace(/^(\d{2,4}), standing by\./, '$1, 10-12, standing by.')
+    .replace(/(say again your last\?)/, '10-9, $1');
 }
 
 export type { SwStep };

@@ -185,6 +185,7 @@ export interface SimState {
   metrics: { cmi: number; ci: number; momentary: number; violations: Violation[]; decisions: Decision[]; dispatchTimes: number[]; contacts: number; };
   scen: { id: string; obj: Record<string, ObjState>; flags: Record<string, any>; done: boolean; startT: number; aarShown: boolean };
   autoAssist: boolean;
+  tenCodes?: boolean;
   voiceRadio?: boolean; radioCtx?: { unit: string; t: number } | null;
   weather: { text: string; level: 'normal' | 'watch' | 'warning' };
   loopSince: number | null;

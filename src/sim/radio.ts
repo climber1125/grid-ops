@@ -86,6 +86,7 @@ export function speakable(text: string): string {
     .replace(/\bTruck (\d{3})/g, (_, n) => `Truck ${pairs(n)}`)
     .replace(/(^|[\s,])(2\d\d)([,.\s]|$)/g, (_, a, n, b) => `${a}${pairs(n)}${b}`)
     .replace(/\b(\d{1,2}):(\d{2})\b/g, (_, h, m) => `${h.padStart(2, '0')} ${m === '00' ? 'hundred' : m}`)
+    .replace(/\b10-(\d{1,2})\b/g, (_, n) => `ten ${n}`)
     .replace(/\bETR\b/g, 'E T R')
     .replace(/\bOMS\b/g, 'O M S')
     .replace(/&/g, 'and');
