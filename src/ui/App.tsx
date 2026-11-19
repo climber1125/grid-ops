@@ -19,7 +19,7 @@ import { Inspector } from './Inspector';
 import { SboModal, ScenarioModal, AarModal } from './Modals';
 import { StatusWall, applyRoster } from './Fleet';
 import { RadioPlayer, alarmTone, unlockAudio, keyChirp, PttSession, speechRecognitionSupported } from './audio';
-import { TutorialCoach } from './Tutorial';
+import { TutorialCoach, TutorialWarn } from './Tutorial';
 import { saveState, loadState } from '../sim/persist';
 import { openChannel, remoteEngine, initialView, viewUrl, VIEWS, WIN_ID, type Msg, type View } from './link';
 import type { LatLng } from '../sim/types';
@@ -514,6 +514,7 @@ export default function App() {
                 </div>
               )}
               {s.scenario === 'T' && curTab !== 'sw' && <TutorialCoach />}
+              {s.scenario === 'T' && <TutorialWarn />}
               <div className="toasts">
                 {toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}
               </div>

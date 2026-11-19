@@ -433,3 +433,7 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .emgmenu { right: 120px; }
 .btn.emg-live { animation: emgblink 1s steps(2) infinite; }
 @keyframes emgblink { 50% { background: var(--red); color: #fff; } }
+.coachwarn { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 950; width: min(460px, calc(100% - 24px)); background: #2a1414; border: 2px solid var(--red, #e5484d); border-radius: 6px; padding: 10px 12px; box-shadow: 0 6px 24px rgba(0,0,0,.55); }
+.coachwarn .ch { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.coachwarn .cb { font-size: 12px; line-height: 1.5; }
+.coachwarn .cf { display: flex; justify-content: flex-end; margin-top: 8px; }

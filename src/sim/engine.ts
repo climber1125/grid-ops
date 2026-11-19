@@ -178,7 +178,22 @@ export class Engine {
   ackAlarm(id: string) { const a = this.s.alarms.find(x => x.id === id); if (a && !a.acked) { a.acked = true; this.decision(`Acknowledged alarm: ${a.text}`); } this.bump(); }
   ackAll() { let n = 0; for (const a of this.s.alarms) if (!a.acked) { a.acked = true; n++; } if (n) this.decision(`Acknowledged ${n} alarm(s)`); this.bump(); }
   decision(text: string, good?: boolean) { this.s.metrics.decisions.push({ t: this.s.t, text, good }); }
+  /** Tutorial-only coaching: surfaces a "what went wrong / how to fix it" card. No effect in other scenarios. */
+  coach(title: string, fix: string) {
+    if (this.s.scenario !== 'T') return;
+    const f = this.s.scen.flags;
+    f.coachWarn = { id: (f.coachWarn?.id ?? 0) + 1, t: this.s.t, title, fix };
+    this.bump();
+  }
+  dismissCoach() { const f = this.s.scen.flags; f.coachSeen = f.coachWarn?.id ?? 0; delete f.coachWarn; this.bump(); }
   violation(code: string, text: string) {
+    const COACH: Record<string, [string, string]> = {
+      'tag': ['You tried to close a device that is under a HOLD tag', 'A tag means a crew is working there. Do not close it. Have the crew release their clearance first, then the tag clears and you can close. Say: "Truck 233, release your clearance."'],
+      'energize-fault': ['You energized a known fault', 'Never close into a section you know is faulted. Isolate the faulted section first (open the switches on both sides), then restore the good sections around it.'],
+      'clearance-release': ['You released a clearance the crew had not released', 'Only release a clearance after the crew holding it reports clear. Ask: "Truck 233, are you clear?" and wait for them to release it.'],
+      'repeat-back': ['The crew repeated the instruction wrong and you accepted it', 'If the device or action differs from what you said, say "Negative, 233, repeat back" and give the step again.'],
+    };
+    const c = COACH[code]; if (c) this.coach(c[0], c[1]);
     this.s.metrics.violations.push({ t: this.s.t, code, text });
     this.log('SAFETY', 'alarm', `SAFETY: ${text}`);
     this.decision(`VIOLATION — ${text}`, false);
@@ -373,7 +388,7 @@ export class Engine {
     for (const fid of this.closeOntoTrips) {
       const f = this.s.faults[fid];
       if (f.found) this.violation('energize-fault', `Energized known faulted section (${f.desc}) by closing ${id}`);
-      else this.decision(`Closed ${id} into an unlocated fault — protection re-tripped`, false);
+      else { this.decision(`Closed ${id} into an unlocated fault — protection re-tripped`, false); this.coach('You closed into a fault that is not found yet', 'The breaker tripped again because the fault is still there. Patrol the line with a crew to find it, isolate it, then restore around it. Say: "Truck 233, patrol the feeder."'); }
     }
     return { ok: true };
   }
@@ -822,12 +837,12 @@ export class Engine {
       const st = this.s.dev[r.dev!];
       r.status = 'Approved';
       if (st.nonReclose) this.decision(`Placed hot-line tag (non-reclose) on ${r.dev} and released ${r.truck} for energized work`, true);
-      else { this.decision(`Released ${r.truck} for energized work but ${r.dev} reclosing is still ENABLED`, false); this.log('SAFETY', 'alarm', `${r.truck} told hot-line tag is on, but ${r.dev} non-reclose is OFF`); }
+      else { this.coach('Hot-line work approved with reclosing still ON', 'Before releasing a crew for energized work, turn reclosing off (non-reclose) on the feeder breaker, then approve. Reclosing can re-energize the line on a lineman.'); this.decision(`Released ${r.truck} for energized work but ${r.dev} reclosing is still ENABLED`, false); this.log('SAFETY', 'alarm', `${r.truck} told hot-line tag is on, but ${r.dev} non-reclose is OFF`); }
       this.say([['C', `${r.truck}, Sparks Control. Hot-line tag is on ${r.dev}, non-reclose, at ${this.hhmm()}. You're clear for energized work.`], [r.truck, `${r.truck} copies, hot-line tag on ${r.dev}. Starting energized work.`]], { unit: r.truck });
       this.scen.event?.(this, 'hotlineGranted', { req: r.id, nr: !!st.nonReclose });
     } else if (r.type === 'pressure') {
       r.status = 'Approved';
-      this.decision('Agreed to supervisor request to restore section under clearance', false);
+      this.decision('Agreed to supervisor request to restore section under clearance', false); this.coach('You agreed to restore a section that is under clearance', 'A supervisor asking does not override a clearance. Decline, confirm the crew is clear and the clearance is released, then restore.');
       this.say([['C', `249, Sparks Control, copy, will attempt to close ${r.dev}.`]], { unit: '249' });
       const res = this.operate(r.dev!, 'close', { by: 'SCADA' });
       if (!res.ok) this.log('SCADA', 'alarm', `Control rejected: ${res.reason}`);
@@ -982,15 +997,21 @@ export class Engine {
     this.bump(); return null;
   }
 
-  confirmRepeat(oid: string, correct: boolean) {
+  confirmRepeat(oid: string, correct0: boolean) {
+    let correct = correct0;
     const o = this.s.orders[oid];
     const st = o?.steps[o.cur];
     if (!st || st.status !== 'RepeatBack') return 'No repeat-back pending';
     const tr = this.truck(st.exec)!;
     const wrong = st.rbDev !== st.dev || st.rbAction !== st.action;
+    if (correct && wrong && this.s.scenario === 'T') {
+      // Tutorial safety net: do not let the mistake through — coach, then re-issue the step.
+      this.coach('The crew repeated the instruction wrong', `They said ${st.rbAction} ${st.rbDev}, but the step is ${st.action} ${st.dev}. Never accept a wrong repeat-back. Say "Negative, ${tr.id}, repeat back", then re-give the step. The tutorial re-issued it for you.`);
+      correct = false;
+    }
     if (!correct) {
       if (wrong) { this.decision(`Caught incorrect repeat-back from ${tr.id} (${st.rbAction} ${st.rbDev})`, true); this.s.scen.flags.caughtRepeat = true; }
-      else this.decision(`Rejected a correct repeat-back from ${tr.id}`, false);
+      else { this.decision(`Rejected a correct repeat-back from ${tr.id}`, false); this.coach('That repeat-back was actually correct', 'Compare the crew repeat-back to your step: same device, same action. If they match, confirm with "That is correct, perform." (or say "correct").'); }
       const d = this.dev(st.dev);
       const end = this.say([['C', `Negative, ${tr.id}. Step ${o.cur + 1}: ${st.action === 'open' ? 'Open' : 'Close'} ${devWord(d)} ${st.dev} at ${d.loc}. Repeat.`]], { kind: 'switching', unit: tr.id });
       st.status = 'Issued'; st.injectError = false;
@@ -1723,6 +1744,7 @@ export class Engine {
         const ord = Object.values(this.s.orders).find(o => o.status === 'Active' && ['Pending', 'Failed'].includes(o.steps[o.cur]?.status) && o.steps[o.cur].exec === unit);
         if (!ord) {
           this.decision(`Gave ${unit} a verbal switching instruction (${act} ${dev}) with no active switching order`, false);
+          this.coach('No switching order for that operation', 'Switching is done from a written order. Open the Switching tab, build and issue the order, then give the crew each step in sequence.');
           reply(unit, `Sparks Control, ${unit}. I don't show ${act === 'open' ? 'opening' : 'closing'} ${dev} on an active switching order. Give me the order and step number before we operate.`, 'switching');
           return done(null);
         }
@@ -1730,6 +1752,7 @@ export class Engine {
         if (st.dev !== dev || st.action !== act) {
           reply(unit, `Sparks Control, ${unit}. That doesn't match ${ord.id} step ${ord.cur + 1}. I show step ${ord.cur + 1} as ${st.action} ${st.dev}. Please verify.`, 'switching');
           this.decision(`Switching instruction to ${unit} did not match ${ord.id} step ${ord.cur + 1}`, false);
+          this.coach('Step does not match the order', `Give the step exactly as written: step ${ord.cur + 1} is ${st.action} ${st.dev}.`);
           return done(null);
         }
         return done(this.issueStep(ord.id));

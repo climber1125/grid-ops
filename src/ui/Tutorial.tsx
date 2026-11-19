@@ -35,3 +35,17 @@ export function TutorialCoach() {
     </div>
   );
 }
+
+/** Tutorial-only mistake warning: what went wrong and how to fix it. */
+export function TutorialWarn() {
+  const { e } = useCtx();
+  const w = e.s.scen.flags.coachWarn as { id: number; title: string; fix: string } | undefined;
+  if (!w) return null;
+  return (
+    <div className="coachwarn" role="alert">
+      <div className="ch"><span className="badge red">MISTAKE</span><b>{w.title}</b></div>
+      <div className="cb"><b>How to fix it:</b> {w.fix}</div>
+      <div className="cf"><button className="btn pri sm" onClick={() => e.dismissCoach()}>Got it</button></div>
+    </div>
+  );
+}

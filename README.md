@@ -131,3 +131,8 @@ src/ui/             ← operator workstation (React)
 - **Status wall:** a big-screen view for a TV or projector — customers out, incidents, crews, indices, feeder loading, last radio traffic.
 - **Light / dark:** ☀/☾ in the top bar. Saved per view, so a projector wall can stay light while the desk monitors stay dark.
 - **Multi-monitor:** built in. **Monitors → Spread across all screens** (Chrome/Edge) or open any view in its own window. One window runs the simulation, the rest mirror it and send actions to it; if the main window closes, a linked window takes over. Views: `?mon=all|wall|gis|scada|sw|ops|oms|radio|crew|alarms|rel`. Leadership uses the browser's Web Locks API, so a minimized or background main window is never mistaken for a closed one, and its clock runs in a worker so it keeps full speed in the background.
+
+
+## Tutorial mistake warnings
+
+In the Tutorial scenario only, common mistakes (closing a tagged device, closing into a fault, accepting a wrong repeat-back, releasing a clearance early, approving hot-line work with reclosing on, switching without an order, giving a step that does not match the order, agreeing to supervisor pressure) pop up a red **MISTAKE** card with how to fix it. A wrong repeat-back is blocked and re-issued so it cannot slip through. Other scenarios are unchanged and still score these as safety violations.
