@@ -70,9 +70,9 @@ function DevView({ id }: { id: string }) {
         </>}
         {(d.type === 'breaker' || d.type === 'recloser') && d.scada && <>
           {!st.tags.includes('OPR-LO')
-            ? <button className="btn danger" title="Open (if closed) and apply a do-not-close tag. Use to lock a feeder out for safety." onClick={() => openSbo({ dev: id, action: 'lockout' })}>LOCK OUT</button>
+            ? <button data-tut="lockout" className="btn danger" title="Open (if closed) and apply a do-not-close tag. Use to lock a feeder out for safety." onClick={() => openSbo({ dev: id, action: 'lockout' })}>LOCK OUT</button>
             : <button className="btn warn" onClick={() => { const er = e.releaseLockout(id); if (er) flash(er, 'warn'); }}>Remove lockout</button>}
-          <button className={`btn ${st.nonReclose ? 'warn' : ''}`} title="Hot-line tag: block reclosing so any fault trips straight to lockout. Required for energized work." onClick={() => { const er = e.setNonReclose(id, !st.nonReclose); if (er) flash(er, 'warn'); }}>{st.nonReclose ? 'Non-reclose ON — turn off' : 'Non-reclose (hot-line tag)'}</button>
+          <button data-tut="nr" className={`btn ${st.nonReclose ? 'warn' : ''}`} title="Hot-line tag: block reclosing so any fault trips straight to lockout. Required for energized work." onClick={() => { const er = e.setNonReclose(id, !st.nonReclose); if (er) flash(er, 'warn'); }}>{st.nonReclose ? 'Non-reclose ON — turn off' : 'Non-reclose (hot-line tag)'}</button>
         </>}
         {d.type !== 'fuse' && <button className="btn" onClick={() => { setSwPrefill({ dev: id, action: st.open ? 'close' : 'open' }); setTab('sw'); }}>Add to switching order</button>}
         <button className="btn" onClick={() => flyTo(d.pos, 16.5)}>Zoom</button>

@@ -1,13 +1,14 @@
 // Voice-radio helpers: when talk-back is on, radio actions are spoken —
 // buttons are replaced by the phrase to say, so the operator learns the
 // phraseology. SCADA and phone actions stay as buttons.
-import { useRef, type ReactNode } from 'react';
+import { useRef, isValidElement, type ReactNode } from 'react';
 import { useCtx } from './ctx';
 
 export function SayOr({ phrase, children }: { phrase: string; children: ReactNode }) {
   const { voiceReq } = useCtx();
   if (!voiceReq) return <>{children}</>;
-  return <span className="say" title="Voice radio is on: hold Space (or the TALK button) and say this">🎙 “{phrase}”</span>;
+  const tut = isValidElement(children) ? (children.props as Record<string, unknown>)['data-tut'] as string | undefined : undefined;
+  return <span data-tut={tut} className="say" title="Voice radio is on: hold Space (or the TALK button) and say this">🎙 “{phrase}”</span>;
 }
 
 export function PttBar() {
@@ -19,7 +20,7 @@ export function PttBar() {
     <div className={`pttbar ${ptt.active ? 'live' : ''}`}>
       {ptt.supported ? (
         <button
-          className={`btn ptt ${ptt.active ? 'on' : ''}`}
+          data-tut="ptt" className={`btn ptt ${ptt.active ? 'on' : ''}`}
           onPointerDown={ev => {
             ev.preventDefault();
             if (latched.current) { latched.current = false; ptt.stop(); return; }

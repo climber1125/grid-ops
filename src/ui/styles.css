@@ -437,3 +437,10 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .coachwarn .ch { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .coachwarn .cb { font-size: 12px; line-height: 1.5; }
 .coachwarn .cf { display: flex; justify-content: flex-end; margin-top: 8px; }
+.tut-hl { outline: 3px solid #ffd400 !important; outline-offset: 2px; border-radius: 4px; animation: tutpulse 1.1s ease-in-out infinite; position: relative; z-index: 60; }
+tr.tut-hl { outline-offset: -3px; background: rgba(255,212,0,.15); }
+@keyframes tutpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,212,0,.75); } 50% { box-shadow: 0 0 0 9px rgba(255,212,0,0); } }
+.coach .ctodo { margin-top: 8px; padding: 6px 8px; font-size: 12px; line-height: 1.45; background: rgba(255,212,0,.12); border-left: 3px solid #ffd400; border-radius: 3px; }
+.coach .ctodo.ok { background: rgba(60,200,120,.15); border-left-color: #3cc878; color: #7be0a8; font-weight: 600; }
+.coach .csay { margin-top: 6px; padding: 6px 8px; font-size: 12px; background: rgba(0,200,255,.1); border-left: 3px solid var(--cyan); border-radius: 3px; display: flex; flex-direction: column; gap: 2px; }
+.coach .csay span { font-size: 10px; opacity: .8; letter-spacing: .04em; }

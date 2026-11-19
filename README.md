@@ -136,3 +136,7 @@ src/ui/             ← operator workstation (React)
 ## Tutorial mistake warnings
 
 In the Tutorial scenario only, common mistakes (closing a tagged device, closing into a fault, accepting a wrong repeat-back, releasing a clearance early, approving hot-line work with reclosing on, switching without an order, giving a step that does not match the order, agreeing to supervisor pressure) pop up a red **MISTAKE** card with how to fix it. A wrong repeat-back is blocked and re-issued so it cannot slip through. Other scenarios are unchanged and still score these as safety violations.
+
+## Tutorial guidance
+
+The Tutorial highlights the exact control for each step with a pulsing yellow outline (Enable audio, incident row, unit box, Dispatch / Grant, Verify & Close, Non-reclose, LOCK OUT, HOLD TO TALK), shows the exact phrase to say with the real incident and device numbers filled in, and turns green with a check when a step is done (the Next button then pulses). Highlights work in both voice and click modes.

@@ -28,7 +28,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
   const reqActions = (r: Request) => {
     const u = r.truck === '249' ? 'Supervisor 249' : `Truck ${r.truck}`;
     switch (r.type) {
-      case 'close': return <><SayOr phrase={`${u}, permission granted to close ${r.dev}`}><button className="btn good sm" onClick={() => run(e.approve(r.id))}>Grant</button></SayOr><SayOr phrase={`${u}, hold, stand by`}><button className="btn sm" onClick={() => run(e.deny(r.id))}>Hold</button></SayOr></>;
+      case 'close': return <><SayOr phrase={`${u}, permission granted to close ${r.dev}`}><button data-tut="grant" className="btn good sm" onClick={() => run(e.approve(r.id))}>Grant</button></SayOr><SayOr phrase={`${u}, hold, stand by`}><button className="btn sm" onClick={() => run(e.deny(r.id))}>Hold</button></SayOr></>;
       case 'clearance': return <><SayOr phrase={`${u}, clearance is issued on that section`}><button className="btn warn sm" onClick={() => run(e.approve(r.id))}>Issue clearance</button></SayOr><SayOr phrase={`${u}, unable, stand by`}><button className="btn sm" onClick={() => run(e.deny(r.id))}>Defer</button></SayOr></>;
       case 'release': return <SayOr phrase={`${u}, copy, clearance released`}><button className="btn good sm" onClick={() => run(e.approve(r.id))}>Acknowledge release</button></SayOr>;
       case 'hotline': return <><SayOr phrase={`${u}, hot-line tag is on ${r.dev}, you're clear for energized work`}><button className="btn warn sm" onClick={() => run(e.approve(r.id))}>Confirm hot-line tag</button></SayOr><SayOr phrase={`${u}, stand by`}><button className="btn sm" onClick={() => run(e.deny(r.id))}>Hold</button></SayOr></>;
@@ -55,8 +55,8 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
         <span className={`lamp ${lamp === 'rx' ? 'rx' : ''}`} title="RX" /><span className="dim" style={{ fontSize: 10 }}>RX</span>
         <span className="chan">OPS-1{F.emergencyTraffic ? <span className="badge red" style={{ marginLeft: 6 }}>EMERGENCY TRAFFIC</span> : ''}</span>
         <span style={{ flex: 1 }} />
-        <SayOr phrase="All units, Sparks Control, emergency traffic only"><button className="btn danger sm" onClick={() => run(e.declareEmergency())}>Emergency traffic</button></SayOr>
-        <button className="btn danger sm" title="Phone: call 911 and request EMS / fire / police" onClick={() => { run(e.notify911()); flash('911 called — EMS requested', 'alarm'); }}>☎ 911</button>
+        <SayOr phrase="All units, Sparks Control, emergency traffic only"><button data-tut="emg" className="btn danger sm" onClick={() => run(e.declareEmergency())}>Emergency traffic</button></SayOr>
+        <button data-tut="911" className="btn danger sm" title="Phone: call 911 and request EMS / fire / police" onClick={() => { run(e.notify911()); flash('911 called — EMS requested', 'alarm'); }}>☎ 911</button>
       </div>
       {emergency && (
         <div className="req emergency">

@@ -452,7 +452,7 @@ export default function App() {
           <div><div className="clock">{e.hhmmss()}</div></div>
           <div className="clockdate">{days[d.getDay()]} {String(d.getDate()).padStart(2, '0')} {mons[d.getMonth()]}<br />{d.getFullYear()} CDT</div>
           <div className="speed">
-            <button className={`btn ${s.paused ? 'on' : ''}`} onClick={() => { ce.setPaused(!s.paused); setVer(v => v + 1); }}>{s.paused ? '▶' : '❚❚'}</button>
+            <button data-tut="pause" className={`btn ${s.paused ? 'on' : ''}`} onClick={() => { ce.setPaused(!s.paused); setVer(v => v + 1); }}>{s.paused ? '▶' : '❚❚'}</button>
             {[1, 5, 10].map(x => <button key={x} className={`btn ${!s.paused && s.speed === x ? 'on' : ''}`} onClick={() => { ce.setSpeed(x); setVer(v => v + 1); }}>{x}×</button>)}
           </div>
           <div className="tb-sep" />
@@ -471,10 +471,10 @@ export default function App() {
           <label className="aa" title="Desk dispatcher handles routine dispatch / refuse approvals">
             <input type="checkbox" checked={s.autoAssist} onChange={ev => { ce.setAutoAssist(ev.target.checked); setVer(v => v + 1); }} /> Auto-assist
           </label>
-          {isMaster && (!audioOn ? <button className="btn pri audio-cta" onClick={() => { unlockAudio(); setAudioOn(true); }}>Enable audio</button>
+          {isMaster && (!audioOn ? <button data-tut="audio" className="btn pri audio-cta" onClick={() => { unlockAudio(); setAudioOn(true); }}>Enable audio</button>
             : <button className="btn on" onClick={() => { setAudioOn(false); player.current.stop(); }}>Audio on</button>)}
           <button className="btn" onClick={() => saveState('manual', s).then(() => { setSaved(x => ({ ...x, manual: Date.now() })); flash('Session saved to this browser (IndexedDB)', 'good'); })}>Save</button>
-          {view === 'all' && !narrow && <button className={`btn ${focus ? 'on' : ''}`} onClick={() => setFocus(!focus)}>{focus ? 'All panels' : 'Map focus'}</button>}
+          {view === 'all' && !narrow && <button data-tut="focus" className={`btn ${focus ? 'on' : ''}`} onClick={() => setFocus(!focus)}>{focus ? 'All panels' : 'Map focus'}</button>}
           <button className={`btn danger ${emgActive ? 'emg-live' : ''}`} onClick={() => setShowEmg(!showEmg)} title="Emergency tools: emergency traffic, 911, crew-down drill">⚠ EMERGENCY</button>
           <button className={`btn ${showMon ? 'on' : ''}`} onClick={() => setShowMon(!showMon)}>Monitors</button>
           <button className="btn" title={theme === 'dark' ? 'Light mode (projectors / bright rooms)' : 'Dark mode (monitors)'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '☾'}</button>

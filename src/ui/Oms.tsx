@@ -21,7 +21,7 @@ export function OmsPanel() {
   const pos = (i: Incident) => i.kind === 'single' ? e.T.loads[i.loadId!].pos : (e.T.els[i.predDev] as DevEl).pos;
 
   const Row = (i: Incident) => (
-    <tr key={i.id} className={`row ${sel?.kind === 'inc' && sel.id === i.id ? 'sel' : ''}`} onClick={() => { setSel({ kind: 'inc', id: i.id }); flyTo(pos(i)); }}>
+    <tr key={i.id} data-tut="inc-row" className={`row ${sel?.kind === 'inc' && sel.id === i.id ? 'sel' : ''}`} onClick={() => { setSel({ kind: 'inc', id: i.id }); flyTo(pos(i)); }}>
       <td><span className={`badge p${i.priority}`}>P{i.priority}</span>{i.hazard ? <span className="badge red" style={{ marginLeft: 2 }}>⚠</span> : null}{i.critical ? <span className="badge red" style={{ marginLeft: 2 }}>CRIT</span> : null}</td>
       <td className="mono">{i.id}</td>
       <td className="mono">{i.kind === 'single' ? 'SINGLE' : i.predDev}</td>
@@ -79,17 +79,17 @@ export function OmsPanel() {
           </div>
           {selInc.status !== 'Closed' && selInc.status !== 'Restored' && (
             <div className="form-row">
-              <select value={truck} onChange={ev => setTruck(ev.target.value)} style={{ flex: 1 }}>
+              <select data-tut="unit-select" value={truck} onChange={ev => setTruck(ev.target.value)} style={{ flex: 1 }}>
                 <option value="">— assign unit —</option>
                 {Object.values(e.s.trucks).sort((a, b) => dist(a.pos, pos(selInc)) - dist(b.pos, pos(selInc))).map(t => {
                   const mins = Math.round(route(t.pos, pos(selInc)).total / 60);
                   return <option key={t.id} value={t.id} disabled={!!t.clearance || !!t.sw}>{t.id} · {t.status}{t.task ? ` (${t.task.kind})` : ''} · ~{mins} min</option>;
                 })}
               </select>
-              <SayOr phrase={`Truck ${truck || '###'}, Sparks Control, respond to ${selInc.id}`}><button className="btn pri" disabled={!truck} onClick={() => { const err = e.dispatch(truck, selInc.id); if (err) flash(err, 'warn'); }}>Dispatch</button></SayOr>
+              <SayOr phrase={`Truck ${truck || '###'}, Sparks Control, respond to ${selInc.id}`}><button data-tut="dispatch" className="btn pri" disabled={!truck} onClick={() => { const err = e.dispatch(truck, selInc.id); if (err) flash(err, 'warn'); }}>Dispatch</button></SayOr>
             </div>
           )}
-          {selInc.status === 'Restored' && <div className="form-row"><span className="c-green">All customers restored. Verify by AMI ping/callback before closing.</span><button className="btn good" onClick={() => { const err = e.verifyIncident(selInc.id); if (err) flash(err, 'warn'); }}>Verify &amp; Close</button></div>}
+          {selInc.status === 'Restored' && <div className="form-row"><span className="c-green">All customers restored. Verify by AMI ping/callback before closing.</span><button data-tut="verify" className="btn good" onClick={() => { const err = e.verifyIncident(selInc.id); if (err) flash(err, 'warn'); }}>Verify &amp; Close</button></div>}
           <div className="timeline">
             {selInc.timeline.slice().reverse().map((x, k) => <div key={k}><span className="tt">{e.hhmm(x.t)}</span>{x.text}</div>)}
           </div>
