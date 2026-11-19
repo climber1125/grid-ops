@@ -684,14 +684,63 @@ export class Engine {
     return null;
   }
 
+  private minWord(sec: number) { const m = Math.max(1, Math.round(sec / 60)); return m === 1 ? 'a minute' : `${m} minutes`; }
+
+  /** Minutes until a scheduled crew step (repairDone / woDone) fires for this truck, or null. */
+  private stepRemaining(tr: Truck, steps: string[]): number | null {
+    const it = this.s.queue.find(q => q.kind === 'crew' && q.data.truck === tr.id && q.data.tok === tr.tok && steps.includes(q.data.step));
+    return it ? Math.max(1, Math.round((it.t - this.s.t) / 60)) : null;
+  }
+
+  /** What this unit would tell Control right now about the job it is on (built only from sim state). */
+  progressReport(tr: Truck): string {
+    const loc = this.locOf(tr.pos);
+    const mins = (m: number | null) => (m == null ? '' : m <= 2 ? 'a couple more minutes' : `about ${Math.round(m / 5) * 5 || m} more minutes`);
+    if (tr.sw) return `in the middle of switching order ${tr.sw.order}, step ${tr.sw.idx + 1}, at ${loc}.`;
+    const eta = this.eta(tr);
+    const enroute = tr.route && tr.status === 'En Route';
+    const task = tr.task;
+    if (task?.kind === 'workorder') {
+      const wo = this.s.workorders[task.id];
+      if (!wo) return `${tr.status.toLowerCase()}, ${loc}.`;
+      if (enroute || tr.status === 'Dispatched') return `en route to ${wo.id}, ${wo.type}, at ${wo.loc}${eta ? `, about ${this.minWord(eta - this.s.t)} out` : ''}.`;
+      const rem = this.stepRemaining(tr, ['woDone']);
+      if (rem != null) {
+        const pct = wo.dur > 0 ? Math.max(5, Math.min(95, Math.round((1 - (rem * 60) / wo.dur) * 100 / 5) * 5)) : 50;
+        return `on scene working ${wo.id}, ${wo.type}, at ${wo.loc}. About ${pct} percent done, ${mins(rem)}.`;
+      }
+      return `on scene at ${wo.loc} getting set up on ${wo.id}, ${wo.type}.`;
+    }
+    if (task?.kind === 'incident') {
+      const inc = this.s.incidents[task.id];
+      const f = inc?.faults[0] ? this.s.faults[inc.faults[0]] : undefined;
+      const found = f?.found ? `${findingText(f.cause, f.hazard)}` : '';
+      const haz = inc?.hazard ? ' Wire is down, keeping everyone clear of it.' : '';
+      if (!inc) return `${tr.status.toLowerCase()}, ${loc}.`;
+      if (tr.clearance) return `working under clearance ${tr.clearance} at ${loc}. ${found ? found + '. ' : ''}${mins(this.stepRemaining(tr, ['repairDone'])) ? 'Figure ' + mins(this.stepRemaining(tr, ['repairDone'])) + '.' : 'Repairs in progress.'}${haz}`;
+      switch (task.stage) {
+        case 'dispatched': return `en route to ${inc.id}${eta ? `, about ${this.minWord(eta - this.s.t)} out` : ''}. Haven't seen it yet.`;
+        case 'patrol': return `patrolling ${this.dev(inc.predDev).feeder} for the cause on ${inc.id}. Haven't found it yet.`;
+        case 'onscene': return `on location for ${inc.id}, just getting a look at it. ${inc.custOut ? inc.custOut + ' customers still out.' : ''}`;
+        case 'isolate': return `found it. ${found || inc.cause || 'Trouble on the line'}. We're at ${loc}. Standing by for isolation at ${tr.waitIso?.devs.join(' and ') ?? 'the switches'} before we start repairs.${haz}`;
+        case 'repair': { const rem = this.stepRemaining(tr, ['repairDone']); return `working ${inc.id}. ${found || inc.cause || 'Repairs underway'}. We're at ${loc}. ${rem != null ? 'Figure ' + mins(rem) + '.' : 'Repairs in progress.'}${haz}`; }
+        case 'closing': return `wrapping up on ${inc.id}, picking up and getting ready to clear.`;
+        default: return `${tr.status.toLowerCase()} on ${inc.id}, ${loc}.`;
+      }
+    }
+    if (task?.kind === 'planned') return `${tr.status.toLowerCase()} on the planned job, ${loc}.`;
+    if (task?.kind === 'welfare') return `checking on Truck ${task.target}, ${eta ? `about ${this.minWord(eta - this.s.t)} out` : 'en route'}.`;
+    if (task?.kind === 'home') return `returning to the service center, ${loc}.`;
+    return `${tr.status.toLowerCase()}, ${loc}. Nothing on my plate.`;
+  }
+
   statusCheck(truckId: string) {
     const tr = this.truck(truckId);
     if (!tr) return;
     this.s.metrics.contacts++;
     this.say([['C', `Truck ${truckId}, Sparks Control, status check.`]], { unit: truckId });
     if (!tr.comm) { this.schedule(14, 'noResponse', { truck: truckId }); this.decision(`Radio status check to ${truckId} — no response`); this.s.scen.flags.contactAttempts = (this.s.scen.flags.contactAttempts ?? 0) + 1; return; }
-    const what = tr.task?.kind === 'incident' ? `on ${tr.task.id}` : tr.task?.kind === 'workorder' ? `on ${tr.task.id}` : tr.task?.kind === 'planned' ? 'on the planned job' : 'available';
-    this.say([[truckId, `${truckId}, ${tr.status.toLowerCase()} ${what}, ${this.locOf(tr.pos)}.`], ['C', `Copy ${truckId}.`]], { start: 4, unit: truckId });
+    this.say([[truckId, `${truckId}, ${this.progressReport(tr)}`], ['C', `Copy ${truckId}.`]], { start: 4, unit: truckId });
     this.decision(`Radio status check with ${truckId}`);
   }
 
@@ -1571,6 +1620,7 @@ export class Engine {
     const inc = t?.task?.kind === 'incident' ? this.s.incidents[t.task.id] : null;
     return {
       time: this.hhmm(),
+      progressReport: t ? this.progressReport(t) : null,
       truck: t ? { id: t.id, crew: t.crew, status: t.status, location: this.locOf(t.pos), task: t.task, commOk: t.comm } : null,
       incident: inc ? { id: inc.id, status: inc.status, stage: inc.stage, device: inc.predDev, customersOut: inc.custOut, hazard: inc.hazard } : null,
       recentRadio: this.s.radio.slice(-8).map(m => `${m.from}: ${m.text}`),
