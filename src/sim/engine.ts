@@ -23,14 +23,18 @@ const CURVE = [0.52, 0.48, 0.46, 0.45, 0.46, 0.52, 0.62, 0.72, 0.78, 0.82, 0.86,
 const PROTECTIVE = ['xfmr', 'fuse', 'recloser', 'breaker'];
 const CALL_RATE: Record<string, number> = { res: 0.12, apt: 0.08, com: 0.35, ind: 0.5, critical: 1 };
 
-export const TRUCK_ROSTER: Record<string, { crew: string; type: string }> = {
-  '230': { crew: 'Ruiz / Daniels', type: '55 ft bucket' },
-  '233': { crew: 'Whitaker / Gomez', type: '45 ft bucket' },
-  '235': { crew: 'Okafor / Brandt', type: 'Digger derrick' },
-  '238': { crew: 'Tran / Mendez', type: '45 ft bucket' },
-  '240': { crew: 'Hollis / Price', type: '55 ft bucket' },
-  '242': { crew: 'Vega / Nunez', type: 'Troubleman pickup' },
+export const TRUCK_ROSTER: Record<string, { crew: string; type: string; drive: number; work: number }> = {
+  '230': { crew: 'Ruiz / Daniels', type: '55 ft bucket', drive: 1, work: 0.8 },       // veteran crew, quick on the work
+  '233': { crew: 'Whitaker / Gomez', type: '45 ft bucket', drive: 1, work: 1 },        // average (tutorial truck)
+  '235': { crew: 'Okafor / Brandt', type: 'Digger derrick', drive: 1.15, work: 0.9 },  // heavy truck, slow on the road
+  '238': { crew: 'Tran / Mendez', type: '45 ft bucket', drive: 1, work: 1.3 },         // green crew, jobs run long
+  '240': { crew: 'Hollis / Price', type: '55 ft bucket', drive: 0.9, work: 1.15 },     // gets there fast, slower on the job
+  '242': { crew: 'Vega / Nunez', type: 'Troubleman pickup', drive: 0.8, work: 0.9 },   // light truck, quick
 };
+
+/** Pace presets shown in the roster (multiplier on time: lower = faster). */
+export const PACE: [string, number][] = [['Fast', 0.8], ['Quick', 0.9], ['Average', 1], ['Slow', 1.15], ['Very slow', 1.3]];
+export const paceName = (x: number | undefined) => { const v = x ?? 1; return PACE.reduce((b, p) => Math.abs(p[1] - v) < Math.abs(b[1] - v) ? p : b)[0]; };
 
 const WO_TYPES: [string, number][] = [
   ['streetlight repair', 20], ['pole inspection', 25], ['new service connect', 35], ['meter set', 15],
@@ -578,12 +582,27 @@ export class Engine {
   truck(id: string) { return this.s.trucks[id]; }
 
   addTruck(id: string, pos: LatLng, status: CrewStatus = 'Available') {
-    const r = TRUCK_ROSTER[id] ?? { crew: 'Crew', type: 'Bucket' };
-    this.s.trucks[id] = { id, crew: r.crew, type: r.type, pos, heading: 0, status, route: null, task: null, tok: 0, comm: true, home: SERVICE_CENTER, sw: null, waitIso: null, clearance: null };
+    const r = TRUCK_ROSTER[id] ?? { crew: 'Crew', type: 'Bucket', drive: 1, work: 1 };
+    this.s.trucks[id] = { id, crew: r.crew, type: r.type, pos, heading: 0, status, route: null, task: null, tok: 0, comm: true, home: SERVICE_CENTER, sw: null, waitIso: null, clearance: null, drive: r.drive, work: r.work };
     return this.s.trucks[id];
   }
 
+  /** Job time for this crew: base seconds × crew work pace × ±10% day-to-day variation. */
+  workSec(tr: Truck, baseSec: number) { return baseSec * (tr.work ?? 1) * (0.9 + this.rand() * 0.2); }
+
+  /**
+   * Repair time for this crew. The crew radios a normal estimate (base minutes); a slow crew
+   * overruns it and calls in an ETR update, a fast crew finishes early. Returns actual minutes.
+   */
+  private crewRepair(tr: Truck, baseMins: number, startIn: number, inc?: Incident) {
+    const actual = this.workSec(tr, baseMins * 60) / 60;
+    const over = actual - baseMins;
+    if (over >= 5) this.schedule(startIn + Math.max(60, baseMins * 60 - 300), 'crew', { truck: tr.id, tok: tr.tok, step: 'etrUpdate', inc: inc?.id, extra: Math.ceil(over / 5) * 5 });
+    return actual;
+  }
+
   startRoute(tr: Truck, dest: LatLng, purpose: string, slow = 1) {
+    slow *= tr.drive ?? 1;
     const r = route(tr.pos, dest);
     const tok = ++this.s.seq;
     tr.route = { pts: r.pts, cumT: r.cumT.map(x => x * slow), total: r.total * slow, t0: this.s.t, tok, purpose };
@@ -905,7 +924,8 @@ export class Engine {
     const fid = r.inc ? this.s.incidents[r.inc]?.faults[0] : undefined;
     const mins = fid ? repairMinutes(this.s.faults[fid].cause, () => this.rand()) : (this.s.scen.flags.plannedMinutes ?? 20);
     if (r.inc) { const inc = this.s.incidents[r.inc]; inc.stage = 'Repair'; inc.status = 'Working'; inc.etr = this.s.t + end + mins * 60 + 900; inc.timeline.push({ t: this.s.t, text: `Clearance ${id} issued to ${r.truck}` }); }
-    this.schedule(end + mins * 60, 'crew', { truck: r.truck, tok: tr.tok, step: 'repairDone' });
+    const act = this.crewRepair(tr, mins, end, r.inc ? this.s.incidents[r.inc] : undefined);
+    this.schedule(end + act * 60, 'crew', { truck: r.truck, tok: tr.tok, step: 'repairDone' });
     return null;
   }
 
@@ -1189,15 +1209,15 @@ export class Engine {
       const end = this.say([[truckId, `Sparks Control, ${truckId} on location, ${this.locOf(tr.pos)}.`], ['C', `Copy ${truckId}, on location at ${this.hhmm()}.`]], { unit: truckId });
       if (inc && (inc.status === 'Restored' || inc.status === 'Closed')) { this.schedule(end + 10, 'crew', { truck: truckId, tok: tr.tok, step: 'alreadyOn' }); return; }
       const fid = inc?.faults[0];
-      const inv = inc?.kind === 'single' ? 300 : fid && ['tree_primary', 'insulator'].includes(this.s.faults[fid].cause) ? 120 : 240 + this.rand() * 240;
+      const inv = this.workSec(tr, inc?.kind === 'single' ? 300 : fid && ['tree_primary', 'insulator'].includes(this.s.faults[fid].cause) ? 120 : 240 + this.rand() * 240);
       this.schedule(end + inv, 'crew', { truck: truckId, tok: tr.tok, step: 'investigate' });
     } else if (purpose === 'patrol') {
       this.schedule(20, 'crew', { truck: truckId, tok: tr.tok, step: 'patrolFound' });
     } else if (purpose === 'wo') {
       tr.status = 'Working';
-      if (tr.task?.kind === 'workorder') this.schedule(this.s.workorders[tr.task.id].dur, 'crew', { truck: truckId, tok: tr.tok, step: 'woDone' });
+      if (tr.task?.kind === 'workorder') { const wo = this.s.workorders[tr.task.id]; wo.dur = this.workSec(tr, wo.dur); this.schedule(wo.dur, 'crew', { truck: truckId, tok: tr.tok, step: 'woDone' }); }
     } else if (purpose === 'sw') {
-      if (tr.sw) this.schedule(35, 'sw', { order: tr.sw.order, idx: tr.sw.idx, phase: 'operate' });
+      if (tr.sw) this.schedule(this.workSec(tr, 35), 'sw', { order: tr.sw.order, idx: tr.sw.idx, phase: 'operate' });
     } else if (purpose === 'welfare') {
       tr.status = 'On Scene';
       const tg = tr.task?.kind === 'welfare' ? tr.task.target : '';
@@ -1228,6 +1248,16 @@ export class Engine {
         this.freeTruck(tr); break;
       }
       case 'investigate': this.investigate(tr, inc); break;
+      case 'etrUpdate': {
+        if (!tr.comm || (tr.status !== 'Working')) return;
+        const ui = d.inc ? this.s.incidents[d.inc] : undefined;
+        if (ui && (ui.status === 'Restored' || ui.status === 'Closed')) return;
+        if (ui) { ui.etr = Math.max(ui.etr ?? this.s.t, this.s.t) + d.extra * 60; ui.timeline.push({ t: this.s.t, text: `${id}: running long, new ETR ${this.hhmm(ui.etr)}` }); }
+        this.say([[id, `Sparks Control, ${id}.`], ['C', `${id}, go ahead.`], [id, `${id}, this one's running long. Going to need about another ${d.extra} minutes${ui ? ` on ${ui.id}` : ''}.`], ['C', `Copy ${id}, another ${d.extra} minutes${ui ? `, new ETR ${this.hhmm(ui.etr!)}` : ''}.`]], { unit: id });
+        this.log('DISPATCH', 'warn', `${id} job running long — +${d.extra} min${ui ? ` on ${ui.id}` : ''}`);
+        this.bump();
+        break;
+      }
       case 'patrolFound': this.patrolFound(tr, inc); break;
       case 'repairDone': this.repairDone(tr, inc); break;
       case 'closeDev': {
@@ -1336,7 +1366,8 @@ export class Engine {
         ['C', `Copy ${id}. ${CAUSE_TEXT[f.cause]} at ${dev}, ETR ${this.hhmm(inc.etr)}.`],
       ], { unit: id });
       tr.status = 'Working'; tr.task.stage = 'repair';
-      this.schedule(mins * 60 + 30, 'crew', { truck: id, tok: tr.tok, step: 'repairDone' });
+      const act = this.crewRepair(tr, mins, 30, inc);
+      this.schedule(act * 60 + 30, 'crew', { truck: id, tok: tr.tok, step: 'repairDone' });
       return;
     }
     // Mainline device: patrol to the fault
@@ -1858,12 +1889,14 @@ export class Engine {
   }
 
   // ── Crew roster (operator-managed) ─────────────────────────
-  rosterAdd(id: string, crew: string, type: string, quiet = false): string | null {
+  rosterAdd(id: string, crew: string, type: string, quiet = false, drive?: number, work?: number): string | null {
     id = String(id).trim();
     if (!/^\d{2,4}$/.test(id)) return 'Truck number must be 2–4 digits';
     if (this.s.trucks[id]) return `Truck ${id} is already on the roster`;
     const tr = this.addTruck(id, SERVICE_CENTER);
     tr.crew = crew.trim() || 'Crew'; tr.type = type.trim() || 'Bucket';
+    if (drive) tr.drive = drive;
+    if (work) tr.work = work;
     if (!quiet) {
       this.say([[id, `Sparks Control, ${id} on duty at the service center, ${tr.type.toLowerCase()}, ready for assignment.`], ['C', `Copy ${id}.`]], { unit: id });
       this.log('DISPATCH', 'good', `Truck ${id} (${tr.crew}) added to roster`);
@@ -1873,11 +1906,13 @@ export class Engine {
     this.bump();
     return null;
   }
-  rosterEdit(id: string, crew: string, type: string): string | null {
+  rosterEdit(id: string, crew: string, type: string, drive?: number, work?: number): string | null {
     const tr = this.s.trucks[id];
     if (!tr) return `Truck ${id} not on roster`;
     if (crew.trim()) tr.crew = crew.trim();
     if (type.trim()) tr.type = type.trim();
+    if (drive) tr.drive = drive;
+    if (work) tr.work = work;
     this.bump();
     return null;
   }

@@ -1,4 +1,5 @@
 // Equipment / unit / incident inspector — floats over the active monitor.
+import { PaceTag } from './Fleet';
 import { useState, Fragment } from 'react';
 import { useCtx, age } from './ctx';
 import type { DevEl, LineEl } from '../sim/types';
@@ -159,6 +160,7 @@ export function TruckView({ id }: { id: string }) {
         <span className="k">Status</span><span className="v"><span className={`chip ${tr.status.replace(/\s+/g, '')}`}>{tr.status}</span></span>
         <span className="k">Crew</span><span className="v">{tr.crew}</span>
         <span className="k">Equipment</span><span className="v">{tr.type}</span>
+        <span className="k">Pace</span><span className="v">Drive <PaceTag x={tr.drive} /> · Work <PaceTag x={tr.work} /></span>
         <span className="k">Assignment</span><span className="v" style={{ whiteSpace: 'normal' }}>{task}</span>
         {tr.sw && <><span className="k">Switching</span><span className="v">{tr.sw.order} step {tr.sw.idx + 1}</span></>}
         {tr.clearance && <><span className="k">Clearance</span><span className="v c-amber">{tr.clearance}</span></>}

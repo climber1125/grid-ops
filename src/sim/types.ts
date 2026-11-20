@@ -96,6 +96,8 @@ export interface Truck {
   sw: { order: string; idx: number } | null;
   waitIso: { inc: string; devs: string[]; purpose: string } | null;
   clearance: string | null;
+  /** Crew pace multipliers (1 = average). drive scales travel time, work scales job time. */
+  drive?: number; work?: number;
 }
 
 export type IncStatus =

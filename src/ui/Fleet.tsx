@@ -1,10 +1,11 @@
 // Crew roster, reliability indices, and the big-screen status wall.
 import { useState } from 'react';
 import { useCtx, age } from './ctx';
-import type { Engine } from '../sim/engine';
+import { PACE, paceName, type Engine } from '../sim/engine';
 
 // ── Roster preferences (persist your own trucks across scenarios) ──
-export interface RosterPrefs { extra: { id: string; crew: string; type: string }[]; removed: string[]; names: Record<string, { crew: string; type: string }>; }
+type Pace = { drive?: number; work?: number };
+export interface RosterPrefs { extra: ({ id: string; crew: string; type: string } & Pace)[]; removed: string[]; names: Record<string, { crew: string; type: string } & Pace>; }
 const KEY = 'gridops-roster';
 export function loadRoster(): RosterPrefs {
   try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v && Array.isArray(v.extra)) return { extra: v.extra, removed: v.removed ?? [], names: v.names ?? {} }; } catch { /* none */ }
@@ -16,32 +17,48 @@ function saveRoster(p: RosterPrefs) { try { localStorage.setItem(KEY, JSON.strin
 export function applyRoster(e: Engine) {
   const p = loadRoster();
   for (const id of p.removed) if (e.s.trucks[id]) e.rosterRemove(id);
-  for (const [id, n] of Object.entries(p.names)) if (e.s.trucks[id]) e.rosterEdit(id, n.crew, n.type);
-  for (const t of p.extra) if (!e.s.trucks[t.id]) e.rosterAdd(t.id, t.crew, t.type, true);
+  for (const [id, n] of Object.entries(p.names)) if (e.s.trucks[id]) e.rosterEdit(id, n.crew, n.type, n.drive, n.work);
+  for (const t of p.extra) if (!e.s.trucks[t.id]) e.rosterAdd(t.id, t.crew, t.type, true, t.drive, t.work);
 }
 
 const TYPES = ['45 ft bucket', '55 ft bucket', 'Digger derrick', 'Troubleman pickup', 'Material truck', 'Tree crew'];
+
+/** Pace dropdown. Value is the time multiplier (lower = faster). */
+function PaceSel({ v, set, title }: { v: number; set: (x: number) => void; title: string }) {
+  return <select value={String(v)} title={title} onChange={ev => set(Number(ev.target.value))}>{PACE.map(([n, x]) => <option key={n} value={String(x)}>{n}</option>)}</select>;
+}
+/** Colored pace label for tables. */
+export function PaceTag({ x }: { x: number | undefined }) {
+  const v = x ?? 1;
+  return <span className={v < 0.97 ? 'c-green' : v > 1.03 ? 'c-amber' : 'dim'}>{paceName(v)}</span>;
+}
+
+const snap = (x: number | undefined) => PACE.reduce((b, p) => Math.abs(p[1] - (x ?? 1)) < Math.abs(b[1] - (x ?? 1)) ? p : b)[1];
 
 export function RosterPanel() {
   const { e, flash } = useCtx();
   const [id, setId] = useState('');
   const [crew, setCrew] = useState('');
   const [type, setType] = useState(TYPES[0]);
+  const [drive, setDrive] = useState(1);
+  const [work, setWork] = useState(1);
   const [edit, setEdit] = useState<string | null>(null);
   const [eCrew, setECrew] = useState('');
   const [eType, setEType] = useState('');
+  const [eDrive, setEDrive] = useState(1);
+  const [eWork, setEWork] = useState(1);
   const trucks = Object.values(e.s.trucks).sort((a, b) => a.id.localeCompare(b.id));
   const pre = (err: string | null) => { if (err) { flash(err, 'warn'); return false; } return true; };
   const add = () => {
     const tid = id.trim();
     if (e.s.trucks[tid]) { flash(`Truck ${tid} is already on the roster`, 'warn'); return; }
     if (!/^\d{2,4}$/.test(tid)) { flash('Truck number must be 2–4 digits', 'warn'); return; }
-    e.rosterAdd(tid, crew, type);
+    e.rosterAdd(tid, crew, type, false, drive, work);
     const p = loadRoster();
     p.removed = p.removed.filter(x => x !== tid);
-    if (!p.extra.some(x => x.id === tid)) p.extra.push({ id: tid, crew: crew.trim() || 'Crew', type });
+    if (!p.extra.some(x => x.id === tid)) p.extra.push({ id: tid, crew: crew.trim() || 'Crew', type, drive, work });
     saveRoster(p);
-    setId(''); setCrew('');
+    setId(''); setCrew(''); setDrive(1); setWork(1);
   };
   const remove = (tid: string) => {
     const tr = e.s.trucks[tid];
@@ -59,10 +76,10 @@ export function RosterPanel() {
   };
   const saveEdit = () => {
     if (!edit) return;
-    e.rosterEdit(edit, eCrew, eType);
+    e.rosterEdit(edit, eCrew, eType, eDrive, eWork);
     const p = loadRoster();
     const ex = p.extra.find(x => x.id === edit);
-    if (ex) { ex.crew = eCrew || ex.crew; ex.type = eType || ex.type; } else p.names[edit] = { crew: eCrew, type: eType };
+    if (ex) { ex.crew = eCrew || ex.crew; ex.type = eType || ex.type; ex.drive = eDrive; ex.work = eWork; } else p.names[edit] = { crew: eCrew, type: eType, drive: eDrive, work: eWork };
     saveRoster(p); setEdit(null);
   };
   return (
@@ -71,16 +88,20 @@ export function RosterPanel() {
         <input placeholder="Truck #" value={id} onChange={ev => setId(ev.target.value.replace(/\D/g, '').slice(0, 4))} style={{ width: 70 }} className="mono" />
         <input placeholder="Crew (e.g. Smith / Jones)" value={crew} onChange={ev => setCrew(ev.target.value)} style={{ flex: 1, minWidth: 140 }} />
         <select value={type} onChange={ev => setType(ev.target.value)}>{TYPES.map(t => <option key={t}>{t}</option>)}</select>
+        <span className="dim" style={{ fontSize: 10 }}>Drive</span><PaceSel v={drive} set={setDrive} title="Travel speed" />
+        <span className="dim" style={{ fontSize: 10 }}>Work</span><PaceSel v={work} set={setWork} title="How fast they finish jobs" />
         <button className="btn pri" disabled={!id} onClick={add}>Add truck</button>
       </div>
       <table className="grid" style={{ marginTop: 4 }}>
-        <thead><tr><th>Unit</th><th>Crew</th><th>Equipment</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Unit</th><th>Crew</th><th>Equipment</th><th title="Travel speed">Drive</th><th title="How fast they finish investigations, repairs, work orders and switching">Work</th><th>Status</th><th></th></tr></thead>
         <tbody>
           {trucks.map(t => edit === t.id ? (
             <tr key={t.id}>
               <td className="mono"><b>{t.id}</b></td>
               <td><input value={eCrew} onChange={ev => setECrew(ev.target.value)} style={{ width: '100%' }} /></td>
               <td><select value={eType} onChange={ev => setEType(ev.target.value)}>{[...new Set([eType, ...TYPES])].map(x => <option key={x}>{x}</option>)}</select></td>
+              <td><PaceSel v={eDrive} set={setEDrive} title="Travel speed" /></td>
+              <td><PaceSel v={eWork} set={setEWork} title="How fast they finish jobs" /></td>
               <td />
               <td><button className="btn good sm" onClick={saveEdit}>Save</button> <button className="btn sm" onClick={() => setEdit(null)}>Cancel</button></td>
             </tr>
@@ -89,14 +110,16 @@ export function RosterPanel() {
               <td className="mono"><b>{t.id}</b></td>
               <td>{t.crew}</td>
               <td className="dim">{t.type}</td>
+              <td><PaceTag x={t.drive} /></td>
+              <td><PaceTag x={t.work} /></td>
               <td><span className={`chip ${t.status.replace(/\s+/g, '')}`}>{t.status}</span></td>
-              <td><button className="btn sm" onClick={() => { setEdit(t.id); setECrew(t.crew); setEType(t.type); }}>Edit</button> <button className="btn danger sm" onClick={() => remove(t.id)}>Remove</button></td>
+              <td><button className="btn sm" onClick={() => { setEdit(t.id); setECrew(t.crew); setEType(t.type); setEDrive(snap(t.drive)); setEWork(snap(t.work)); }}>Edit</button> <button className="btn danger sm" onClick={() => remove(t.id)}>Remove</button></td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="dim" style={{ fontSize: 10.5, marginTop: 6 }}>
-        Trucks you add, remove or rename are remembered and applied to every new scenario. Trucks holding a clearance, switching, or on a planned job can't be removed until they're clear.
+        Drive sets travel time; Work sets how long investigations, repairs, work orders and switching take. Slow crews overrun their repair estimate and call in a new ETR. Fast crews finish early. Trucks you add, remove, rename or re-pace are remembered and applied to every new scenario. Trucks holding a clearance, switching, or on a planned job can't be removed until they're clear.
         <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => { saveRoster({ extra: [], removed: [], names: {} }); flash('Saved roster cleared — next scenario uses default trucks', 'good'); }}>Reset to defaults</button>
       </div>
     </div>
