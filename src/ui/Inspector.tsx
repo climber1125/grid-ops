@@ -1,5 +1,6 @@
 // Equipment / unit / incident inspector — floats over the active monitor.
-import { PaceTag } from './Fleet';
+import { PaceTag, ExpTag, capsText } from './Fleet';
+import { NEED_TEXT } from '../sim/engine';
 import { useState, Fragment } from 'react';
 import { useCtx, age } from './ctx';
 import type { DevEl, LineEl } from '../sim/types';
@@ -161,6 +162,8 @@ export function TruckView({ id }: { id: string }) {
         <span className="k">Crew</span><span className="v">{tr.crew}</span>
         <span className="k">Equipment</span><span className="v">{tr.type}</span>
         <span className="k">Pace</span><span className="v">Drive <PaceTag x={tr.drive} /> · Work <PaceTag x={tr.work} /></span>
+        <span className="k">Experience</span><span className="v"><ExpTag x={tr.exp} /></span>
+        <span className="k">Can do</span><span className="v" style={{ whiteSpace: 'normal' }}>{capsText(tr.type)}</span>
         <span className="k">Assignment</span><span className="v" style={{ whiteSpace: 'normal' }}>{task}</span>
         {tr.sw && <><span className="k">Switching</span><span className="v">{tr.sw.order} step {tr.sw.idx + 1}</span></>}
         {tr.clearance && <><span className="k">Clearance</span><span className="v c-amber">{tr.clearance}</span></>}
@@ -205,6 +208,7 @@ function IncView({ id }: { id: string }) {
     <div className="kv">
       <span className="k">Priority</span><span className="v"><span className={`badge p${inc.priority}`}>P{inc.priority}</span> {inc.critical ? 'CRITICAL' : ''} {inc.hazard ? 'HAZARD' : ''}</span>
       <span className="k">Status</span><span className="v">{inc.status} · {inc.stage}</span>
+      {inc.needs && <><span className="k">Needs</span><span className="v c-red">{NEED_TEXT[inc.needs]}</span></>}
       <span className="k">Device</span><span className="v">{inc.predDev}</span>
       <span className="k">Customers out</span><span className="v">{inc.custOut} (peak {inc.peak})</span>
       <span className="k">Crew</span><span className="v">{inc.crew ?? '—'}</span>

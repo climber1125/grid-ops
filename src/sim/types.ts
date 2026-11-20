@@ -98,6 +98,8 @@ export interface Truck {
   clearance: string | null;
   /** Crew pace multipliers (1 = average). drive scales travel time, work scales job time. */
   drive?: number; work?: number;
+  /** Experience level — drives how often the crew repeats a switching step back wrong. */
+  exp?: string;
 }
 
 export type IncStatus =
@@ -114,6 +116,8 @@ export interface Incident {
   stage: 'Assess' | 'Isolate' | 'Repair' | 'Restore' | 'Verify' | 'Done';
   isolation: string[]; firstDispatchT: number | null; restoredT: number | null; closedT: number | null;
   onSceneT?: number | null; cmi?: number;
+  /** Equipment the job needs that the first crew on scene didn't have (e.g. 'bucket', 'digger'). */
+  needs?: string | null;
 }
 
 export interface Call {

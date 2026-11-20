@@ -23,14 +23,39 @@ const CURVE = [0.52, 0.48, 0.46, 0.45, 0.46, 0.52, 0.62, 0.72, 0.78, 0.82, 0.86,
 const PROTECTIVE = ['xfmr', 'fuse', 'recloser', 'breaker'];
 const CALL_RATE: Record<string, number> = { res: 0.12, apt: 0.08, com: 0.35, ind: 0.5, critical: 1 };
 
-export const TRUCK_ROSTER: Record<string, { crew: string; type: string; drive: number; work: number }> = {
-  '230': { crew: 'Ruiz / Daniels', type: '55 ft bucket', drive: 1, work: 0.8 },       // veteran crew, quick on the work
-  '233': { crew: 'Whitaker / Gomez', type: '45 ft bucket', drive: 1, work: 1 },        // average (tutorial truck)
-  '235': { crew: 'Okafor / Brandt', type: 'Digger derrick', drive: 1.15, work: 0.9 },  // heavy truck, slow on the road
-  '238': { crew: 'Tran / Mendez', type: '45 ft bucket', drive: 1, work: 1.3 },         // green crew, jobs run long
-  '240': { crew: 'Hollis / Price', type: '55 ft bucket', drive: 0.9, work: 1.15 },     // gets there fast, slower on the job
-  '242': { crew: 'Vega / Nunez', type: 'Troubleman pickup', drive: 0.8, work: 0.9 },   // light truck, quick
+export const TRUCK_ROSTER: Record<string, { crew: string; type: string; drive: number; work: number; exp: string }> = {
+  '230': { crew: 'Ruiz / Daniels', type: '55 ft bucket', drive: 1, work: 0.8, exp: 'Veteran' },          // veteran crew, quick on the work
+  '233': { crew: 'Whitaker / Gomez', type: '45 ft bucket', drive: 1, work: 1, exp: 'Journeyman' },        // average (tutorial truck)
+  '235': { crew: 'Okafor / Brandt', type: 'Digger derrick', drive: 1.15, work: 0.9, exp: 'Journeyman' },  // heavy truck, slow on the road
+  '238': { crew: 'Tran / Mendez', type: '45 ft bucket', drive: 1, work: 1.3, exp: 'Apprentice' },         // green crew, jobs run long
+  '240': { crew: 'Hollis / Price', type: '55 ft bucket', drive: 0.9, work: 1.15, exp: 'Journeyman' },     // gets there fast, slower on the job
+  '242': { crew: 'Vega / Nunez', type: 'Troubleman pickup', drive: 0.8, work: 0.9, exp: 'Veteran' },      // light truck, quick
 };
+
+/** Experience levels and how often each repeats a switching step back wrong (× the base rate). */
+export const EXP: [string, number][] = [['Veteran', 0.4], ['Journeyman', 1], ['Apprentice', 3]];
+const expMult = (x: string | undefined) => EXP.find(e => e[0] === x)?.[1] ?? 1;
+
+// ── Truck capabilities ──────────────────────────────────────
+/** What a truck can do, from its equipment type. */
+export function truckCaps(type: string): string[] {
+  const t = type.toLowerCase();
+  if (t.includes('troubleman') || t.includes('pickup')) return ['refuse'];
+  if (t.includes('digger')) return ['refuse', 'digger'];
+  if (t.includes('tree')) return ['tree'];
+  if (t.includes('material')) return [];
+  return ['refuse', 'bucket'];
+}
+/** What equipment a repair needs. */
+export function causeNeeds(c: Cause): string | null {
+  switch (c) {
+    case 'animal': case 'temporary': case 'planned': case 'contact': return 'refuse';
+    case 'vehicle': return 'digger';
+    default: return 'bucket';
+  }
+}
+export const NEED_TEXT: Record<string, string> = { bucket: 'a bucket truck', digger: 'a digger derrick', refuse: 'a line crew' };
+export const CAP_TEXT: Record<string, string> = { refuse: 'Refuse / hot stick', bucket: 'Aerial repairs', digger: 'Set poles', tree: 'Tree clearing' };
 
 /** Pace presets shown in the roster (multiplier on time: lower = faster). */
 export const PACE: [string, number][] = [['Fast', 0.8], ['Quick', 0.9], ['Average', 1], ['Slow', 1.15], ['Very slow', 1.3]];
@@ -582,8 +607,8 @@ export class Engine {
   truck(id: string) { return this.s.trucks[id]; }
 
   addTruck(id: string, pos: LatLng, status: CrewStatus = 'Available') {
-    const r = TRUCK_ROSTER[id] ?? { crew: 'Crew', type: 'Bucket', drive: 1, work: 1 };
-    this.s.trucks[id] = { id, crew: r.crew, type: r.type, pos, heading: 0, status, route: null, task: null, tok: 0, comm: true, home: SERVICE_CENTER, sw: null, waitIso: null, clearance: null, drive: r.drive, work: r.work };
+    const r = TRUCK_ROSTER[id] ?? { crew: 'Crew', type: 'Bucket', drive: 1, work: 1, exp: 'Journeyman' };
+    this.s.trucks[id] = { id, crew: r.crew, type: r.type, pos, heading: 0, status, route: null, task: null, tok: 0, comm: true, home: SERVICE_CENTER, sw: null, waitIso: null, clearance: null, drive: r.drive, work: r.work, exp: r.exp };
     return this.s.trucks[id];
   }
 
@@ -663,6 +688,7 @@ export class Engine {
     const prevWo = tr.task?.kind === 'workorder' ? tr.task.id : null;
     if (prevWo) this.s.workorders[prevWo].status = 'Open';
     if (tr.task?.kind === 'incident') { const old = this.s.incidents[tr.task.id]; if (old && old.crew === truckId) { old.crew = null; old.status = 'New'; } }
+    if (inc.needs && !truckCaps(tr.type).includes(inc.needs)) this.decision(`Sent ${truckId} (${tr.type}) to ${incId}, which needs ${NEED_TEXT[inc.needs]}`, false);
     tr.task = { kind: 'incident', id: incId, stage: 'dispatched' };
     tr.tok++; tr.route = null; tr.status = 'Dispatched'; tr.waitIso = null;
     inc.crew = truckId; inc.crewHistory.push(truckId); inc.status = 'Dispatched';
@@ -687,6 +713,10 @@ export class Engine {
   }
 
   private releaseCrewFromIncident(inc: Incident) {
+    for (const o of Object.values(this.s.trucks)) if (o.id !== inc.crew && o.task?.kind === 'incident' && o.task.id === inc.id && o.task.stage === 'needsHelp') {
+      this.say([['C', `Truck ${o.id}, Sparks Control. Customers are restored on ${inc.id}. You're released.`], [o.id, `${o.id} copies, released.`]], { unit: o.id });
+      this.freeTruck(o);
+    }
     const tr = inc.crew ? this.truck(inc.crew) : null;
     if (!tr || tr.task?.kind !== 'incident' || tr.task.id !== inc.id) return;
     if (tr.clearance || tr.sw) return;
@@ -755,6 +785,7 @@ export class Engine {
       if (tr.clearance) return `working under clearance ${tr.clearance} at ${loc}. ${found ? found + '. ' : ''}${mins(this.stepRemaining(tr, ['repairDone'])) ? 'Figure ' + mins(this.stepRemaining(tr, ['repairDone'])) + '.' : 'Repairs in progress.'}${haz}`;
       switch (task.stage) {
         case 'dispatched': return `en route to ${inc.id}${eta ? `, about ${this.minWord(eta - this.s.t)} out` : ''}. Haven't seen it yet.`;
+        case 'needsHelp': return `standing by on ${inc.id}, waiting on ${NEED_TEXT[inc.needs ?? 'bucket']}. Keeping the area safe.`;
         case 'patrol': return `patrolling ${this.dev(inc.predDev).feeder} for the cause on ${inc.id}. Haven't found it yet.`;
         case 'onscene': return `on location for ${inc.id}, just getting a look at it. ${inc.custOut ? inc.custOut + ' customers still out.' : ''}`;
         case 'isolate': return `found it. ${found || inc.cause || 'Trouble on the line'}. We're at ${loc}. Standing by for isolation at ${tr.waitIso?.devs.join(' and ') ?? 'the switches'} before we start repairs.${haz}`;
@@ -1067,11 +1098,14 @@ export class Engine {
     if (data.phase === 'repeat') {
       if (st.status !== 'Issued') return;
       let rbDev = st.dev, rbAction = st.action;
-      const errP = this.s.scen.flags.repeatErrorRate ?? 0.03;
+      const errP = (this.s.scen.flags.repeatErrorRate ?? 0.04) * expMult(tr.exp);
       if (st.injectError || (!this.s.scen.flags.noRandomErrors && this.rand() < errP)) {
         const d = this.dev(st.dev);
-        const sib = this.T.feeders[d.feeder].sch.filter(x => x.kind === 'dev' && x.id !== st.dev && this.dev(x.id).type === 'switch').map(x => x.id);
-        rbDev = st.injectErrorDev ?? (sib.length ? this.pick(sib) : st.dev);
+        // Same-type devices on the feeder, nearest first: the realistic mix-up is the switch next door.
+        const sib = this.T.feeders[d.feeder].sch.filter(x => x.kind === 'dev' && x.id !== st.dev && this.dev(x.id).type === d.type).map(x => x.id)
+          .sort((a, b) => dist(this.dev(a).pos, d.pos) - dist(this.dev(b).pos, d.pos)).slice(0, 3);
+        const flipOnly = !st.injectErrorDev && (this.rand() < 0.35 || !sib.length);
+        rbDev = st.injectErrorDev ?? (flipOnly ? st.dev : this.pick(sib));
         if (rbDev === st.dev) rbAction = st.action === 'open' ? 'close' : 'open';
       }
       st.rbDev = rbDev; st.rbAction = rbAction; st.status = 'RepeatBack';
@@ -1206,6 +1240,13 @@ export class Engine {
       tr.status = 'On Scene'; tr.task.stage = 'onscene';
       if (inc && inc.onSceneT == null) inc.onSceneT = this.s.t;
       if (inc && inc.status !== 'Restored' && inc.status !== 'Closed') { inc.status = 'On Scene'; inc.timeline.push({ t: this.s.t, text: `Truck ${truckId} on scene` }); }
+      if (inc) for (const o of Object.values(this.s.trucks)) {
+        if (o.id !== truckId && o.task?.kind === 'incident' && o.task.id === inc.id && o.task.stage === 'needsHelp') {
+          this.say([['C', `Truck ${o.id}, Sparks Control. ${truckId} is on location at ${inc.id}. You're released, thank you.`], [o.id, `${o.id} copies, released.`]], { unit: o.id });
+          inc.timeline.push({ t: this.s.t, text: `${o.id} released — ${truckId} on scene` });
+          this.freeTruck(o);
+        }
+      }
       const end = this.say([[truckId, `Sparks Control, ${truckId} on location, ${this.locOf(tr.pos)}.`], ['C', `Copy ${truckId}, on location at ${this.hhmm()}.`]], { unit: truckId });
       if (inc && (inc.status === 'Restored' || inc.status === 'Closed')) { this.schedule(end + 10, 'crew', { truck: truckId, tok: tr.tok, step: 'alreadyOn' }); return; }
       const fid = inc?.faults[0];
@@ -1248,6 +1289,14 @@ export class Engine {
         this.freeTruck(tr); break;
       }
       case 'investigate': this.investigate(tr, inc); break;
+      case 'reNeed': {
+        if (!inc || tr.task?.kind !== 'incident' || tr.task.stage !== 'needsHelp' || !inc.needs) return;
+        const coming = Object.values(this.s.trucks).find(o => o.id !== id && o.task?.kind === 'incident' && o.task.id === inc.id && truckCaps(o.type).includes(inc.needs!));
+        if (coming) return;
+        this.say([[id, `Sparks Control, ${id}. Still standing by on ${inc.id}, waiting on ${NEED_TEXT[inc.needs]}.`], ['C', `Copy ${id}.`]], { unit: id });
+        this.schedule(600, 'crew', { truck: id, tok: tr.tok, step: 'reNeed' });
+        break;
+      }
       case 'etrUpdate': {
         if (!tr.comm || (tr.status !== 'Working')) return;
         const ui = d.inc ? this.s.incidents[d.inc] : undefined;
@@ -1354,8 +1403,16 @@ export class Engine {
       return;
     }
     const dt = d.type;
+    // Mainline fault already located by an earlier crew: go straight to it.
+    if (dt !== 'fuse' && dt !== 'xfmr' && f.found) {
+      this.say([[id, `Control, ${id}. On location for ${inc.id}. Heading to the fault location now.`], ['C', `Copy ${id}.`]], { unit: id });
+      tr.status = 'En Route'; tr.task.stage = 'patrol';
+      this.startRoute(tr, f.pos, 'patrol');
+      return;
+    }
     if (dt === 'fuse' || dt === 'xfmr') {
       f.found = true;
+      if (this.needsHelp(tr, inc, f, `${findingText(f.cause, f.hazard)} at ${dev}, ${d.loc}.`)) return;
       const mins = repairMinutes(f.cause, () => this.rand());
       inc.cause = f.desc; inc.etr = this.s.t + (mins + 20) * 60; inc.stage = 'Repair'; inc.status = 'Working';
       inc.timeline.push({ t: this.s.t, text: `Cause: ${f.desc}. ETR ${this.hhmm(inc.etr)}` });
@@ -1384,6 +1441,7 @@ export class Engine {
     if (!f) return;
     const id = tr.id;
     f.found = true;
+    if (this.needsHelp(tr, inc, f, `${findingText(f.cause, f.hazard)}, ${this.locOf(f.pos)}.`)) { inc.cause = f.desc; return; }
     const sec = sectionAround(this.T, f.el);
     inc.isolation = sec.bounds;
     inc.stage = 'Isolate'; inc.status = 'On Scene'; inc.cause = f.desc;
@@ -1401,6 +1459,33 @@ export class Engine {
     tr.status = 'Standing By'; tr.task.stage = 'isolate';
     tr.waitIso = { inc: inc.id, devs: sec.bounds, purpose: `Repair ${f.desc} (${inc.id})` };
     (tr.waitIso as any).el = f.el;
+  }
+
+  /**
+   * If this crew's truck can't do the repair, it reports the finding, asks for the right equipment and
+   * stands by protecting the site. Returns true when help is needed (caller stops).
+   */
+  private needsHelp(tr: Truck, inc: Incident, f: Fault, finding: string): boolean {
+    if (this.s.scen.flags.noCaps || this.s.scenario === 'T') return false;
+    const need = causeNeeds(f.cause);
+    if (!need || truckCaps(tr.type).includes(need)) { inc.needs = null; return false; }
+    const id = tr.id;
+    inc.needs = need; inc.stage = 'Assess'; inc.status = 'On Scene';
+    inc.timeline.push({ t: this.s.t, text: `${id} (${tr.type}) can't make this repair — needs ${NEED_TEXT[need]}` });
+    this.log('DISPATCH', 'alarm', `${inc.id}: ${id} needs ${NEED_TEXT[need]} — dispatch a capable unit`);
+    this.say([
+      [id, `Sparks Control, ${id}.`],
+      ['C', `${id}, go ahead.`],
+      [id, `${finding} That's more than we can handle with the ${tr.type.toLowerCase()}. Need ${NEED_TEXT[need]} out here. We'll stand by and keep the area safe.`],
+      ['C', `Copy ${id}, need ${NEED_TEXT[need]}. Stand by.`],
+    ], { unit: id });
+    tr.status = 'Standing By';
+    if (tr.task?.kind === 'incident') tr.task.stage = 'needsHelp';
+    this.decision(`${id} could not make the repair on ${inc.id} — wrong equipment (needed ${NEED_TEXT[need]})`, false);
+    this.s.scen.flags.wrongTruck = (this.s.scen.flags.wrongTruck ?? 0) + 1;
+    this.schedule(600, 'crew', { truck: id, tok: tr.tok, step: 'reNeed' });
+    this.bump();
+    return true;
   }
 
   private repairDone(tr: Truck, inc: Incident | undefined) {
@@ -1889,7 +1974,7 @@ export class Engine {
   }
 
   // ── Crew roster (operator-managed) ─────────────────────────
-  rosterAdd(id: string, crew: string, type: string, quiet = false, drive?: number, work?: number): string | null {
+  rosterAdd(id: string, crew: string, type: string, quiet = false, drive?: number, work?: number, exp?: string): string | null {
     id = String(id).trim();
     if (!/^\d{2,4}$/.test(id)) return 'Truck number must be 2–4 digits';
     if (this.s.trucks[id]) return `Truck ${id} is already on the roster`;
@@ -1897,6 +1982,7 @@ export class Engine {
     tr.crew = crew.trim() || 'Crew'; tr.type = type.trim() || 'Bucket';
     if (drive) tr.drive = drive;
     if (work) tr.work = work;
+    if (exp) tr.exp = exp;
     if (!quiet) {
       this.say([[id, `Sparks Control, ${id} on duty at the service center, ${tr.type.toLowerCase()}, ready for assignment.`], ['C', `Copy ${id}.`]], { unit: id });
       this.log('DISPATCH', 'good', `Truck ${id} (${tr.crew}) added to roster`);
@@ -1906,13 +1992,14 @@ export class Engine {
     this.bump();
     return null;
   }
-  rosterEdit(id: string, crew: string, type: string, drive?: number, work?: number): string | null {
+  rosterEdit(id: string, crew: string, type: string, drive?: number, work?: number, exp?: string): string | null {
     const tr = this.s.trucks[id];
     if (!tr) return `Truck ${id} not on roster`;
     if (crew.trim()) tr.crew = crew.trim();
     if (type.trim()) tr.type = type.trim();
     if (drive) tr.drive = drive;
     if (work) tr.work = work;
+    if (exp) tr.exp = exp;
     this.bump();
     return null;
   }

@@ -1,4 +1,5 @@
 // MONITOR 3 — Outage Management System
+import { NEED_TEXT } from '../sim/engine';
 import { useState, useEffect } from 'react';
 import { useCtx, age } from './ctx';
 import type { DevEl, Incident } from '../sim/types';
@@ -75,6 +76,7 @@ export function OmsPanel() {
             <span className="k">ETR</span><span className="v">{selInc.etr ? e.hhmm(selInc.etr) : 'Assessing'}</span>
             <span className="k">Cause</span><span className="v">{selInc.cause ?? 'Unknown'}</span>
             <span className="k">Crew</span><span className="v">{selInc.crew ?? '—'}</span>
+            {selInc.needs && <><span className="k">Needs</span><span className="v c-red" style={{ gridColumn: 'span 3' }}>{NEED_TEXT[selInc.needs]} — first crew can't make this repair</span></>}
             {selInc.isolation.length > 0 && <><span className="k">Isolate at</span><span className="v" style={{ gridColumn: 'span 3' }}>{selInc.isolation.join(', ')}</span></>}
           </div>
           {selInc.status !== 'Closed' && selInc.status !== 'Restored' && (
