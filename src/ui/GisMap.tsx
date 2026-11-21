@@ -100,11 +100,13 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
     for (const id of T.switchable) {
       const d = T.els[id] as DevEl;
       const r = d.type === 'breaker' ? 6.5 : d.type === 'recloser' ? 6 : d.type === 'tie' ? 5.5 : d.type === 'switch' ? 4.8 : 2.8;
-      const m = L.circleMarker(d.pos, { renderer: rDev, radius: r, weight: d.type === 'fuse' ? 1 : 2 });
+      // Fuses, disconnects and recloser bypass blades only show when zoomed in close.
+      const minor = d.type === 'fuse' || d.type === 'disc' || (!!d.grp && d.type !== 'recloser');
+      const m = L.circleMarker(d.pos, { renderer: rDev, radius: d.type === 'disc' ? 3.2 : d.grp && d.type === 'switch' ? 3.6 : r, weight: d.type === 'fuse' ? 1 : 2 });
       m.on('click', (ev) => { L.DomEvent.stopPropagation(ev); setSelRef.current({ kind: 'dev', id }); });
-      m.addTo(d.type === 'fuse' ? fuseGroup : devGroup); devs.set(id, m);
+      m.addTo(minor ? fuseGroup : devGroup); devs.set(id, m);
       const lblHtml = `<div class="dlabel" data-dev="${id}" style="transform:translate(8px,-50%)">${id}</div>`;
-      if (d.type !== 'breaker') L.marker(d.pos, { pane: 'lbl', interactive: false, icon: L.divIcon({ className: '', html: lblHtml, iconSize: [0, 0] }) }).addTo(d.type === 'fuse' ? fuseLabels : devLabels);
+      if (d.type !== 'breaker') L.marker(d.pos, { pane: 'lbl', interactive: false, icon: L.divIcon({ className: '', html: lblHtml, iconSize: [0, 0] }) }).addTo(minor ? fuseLabels : devLabels);
     }
     // Substations
     for (const s of SUB_SPECS) {

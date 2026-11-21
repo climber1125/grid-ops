@@ -17,6 +17,11 @@ import { RadioPanel } from './Radio';
 import { CrewBoard, AlarmPanel } from './Bottom';
 import { Inspector } from './Inspector';
 import { SboModal, ScenarioModal, AarModal } from './Modals';
+import { InstructorModal } from './Instructor';
+import { decodeExercise, type ExerciseDef } from '../sim/exercise';
+
+const urlParams = new URLSearchParams(window.location.search);
+const urlExercise = urlParams.get('ex') ? decodeExercise(urlParams.get('ex')!) : null;
 import { StatusWall, applyRoster } from './Fleet';
 import { RadioPlayer, alarmTone, unlockAudio, keyChirp, PttSession, speechRecognitionSupported } from './audio';
 import { TutorialCoach, TutorialWarn } from './Tutorial';
@@ -53,8 +58,9 @@ function makeTicker(fn: () => void): () => void {
 }
 
 export default function App() {
-  const [e, setE] = useState<Engine>(() => Engine.create('A', 1001));
+  const [e, setE] = useState<Engine>(() => (urlExercise ? Engine.create('X', 1000 + Math.floor(Math.random() * 9000), { exercise: urlExercise }) : Engine.create('A', 1001)));
   const eRef = useRef(e); eRef.current = e;
+  if (urlParams.has('debug')) (window as any).__gridops = e;
   const [, setVer] = useState(0);
 
   // ── Window role & view ─────────────────────────────────────
@@ -89,6 +95,7 @@ export default function App() {
   const [sbo, setSbo] = useState<SboReq | null>(null);
   const [showScen, setShowScen] = useState(false);
   const [showAar, setShowAar] = useState(false);
+  const [showInstr, setShowInstr] = useState(urlParams.has('instructor'));
   const [showMon, setShowMon] = useState(false);
   const [showEmg, setShowEmg] = useState(false);
   const [showObj, setShowObj] = useState(true);
@@ -131,6 +138,12 @@ export default function App() {
     if (roleRef.current === 'replica') { post({ type: 'start', from: WIN_ID, id, seed, emg }); setShowScen(false); return; }
     const ne = Engine.create(id, seed); applyRoster(ne); if (emg && emg > 0) ne.scheduleDrill(emg);
     setE(ne); setShowScen(false); setShowAar(false); if (viewRef.current === 'all') setTabRaw('gis');
+  };
+  const startExercise = (def: ExerciseDef) => {
+    if (roleRef.current === 'replica') { flash('Start exercises from the main console window', 'warn'); return; }
+    const ne = Engine.create('X', 1000 + Math.floor(Math.random() * 9000), { exercise: def }); applyRoster(ne);
+    setE(ne); setShowScen(false); setShowInstr(false); setShowAar(false);
+    if (viewRef.current === 'all') setTabRaw('sw');
   };
   const loadInto = (state: any) => {
     if (roleRef.current === 'replica') { post({ type: 'load', from: WIN_ID, state }); return; }
@@ -591,7 +604,8 @@ export default function App() {
 
       {waiting && <div className="modal-bg"><div className="mono" style={{ color: 'var(--cyan)', textAlign: 'center' }}>{role === 'pending' ? 'Connecting to GRID OPS console…' : 'Waiting for the main console…'}<div className="dim" style={{ fontSize: 11, marginTop: 6 }}>If the main window is minimized this can take a few seconds.</div></div></div>}
       {sbo && <SboModal req={sbo} onClose={() => setSbo(null)} />}
-      {showScen && <ScenarioModal current={e.scen.id} onStart={start} onClose={() => setShowScen(false)} saved={saved} onResume={() => resume('autosave')} onLoadManual={() => resume('manual')} />}
+      {showScen && <ScenarioModal current={e.scen.id} onStart={start} onClose={() => setShowScen(false)} saved={saved} onResume={() => resume('autosave')} onLoadManual={() => resume('manual')} onInstructor={() => { setShowScen(false); setShowInstr(true); }} onStartExercise={startExercise} />}
+      {showInstr && <InstructorModal onClose={() => setShowInstr(false)} onStartExercise={startExercise} />}
       {showAar && <AarModal onClose={() => setShowAar(false)} onNew={() => { setShowAar(false); setShowScen(true); }} />}
     </EngineCtx.Provider>
   );

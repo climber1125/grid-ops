@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { decodeExercise, type ExerciseDef } from '../sim/exercise';
 import { useCtx, age, type SboReq } from './ctx';
 import type { DevEl } from '../sim/types';
 import { SCENARIOS, SCENARIO_LIST } from '../sim/scenarios';
@@ -60,10 +61,13 @@ export function SboModal({ req, onClose }: { req: SboReq; onClose(): void }) {
   );
 }
 
-export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLoadManual }: {
+export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLoadManual, onInstructor, onStartExercise }: {
   current: string; onStart(id: string, seed: number, emg?: number): void; onClose(): void;
   saved: { autosave?: number; manual?: number }; onResume(): void; onLoadManual(): void;
+  onInstructor(): void; onStartExercise(def: ExerciseDef): void;
 }) {
+  const [exCode, setExCode] = useState('');
+  const exDef = exCode.trim() ? decodeExercise(exCode.includes('ex=') ? new URL(exCode.trim(), window.location.href).searchParams.get('ex') ?? '' : exCode) : null;
   const [sel, setSel] = useState(current);
   const [seed, setSeed] = useState(String(1000 + Math.floor(Math.random() * 9000)));
   const [emgOn, setEmgOn] = useState(false);
@@ -96,6 +100,13 @@ export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLo
               <span className="dim">You won't be told when. Emergency traffic, 911 and a second unit are on you.</span>
             </>}
           </div>
+          {sel === 'X' && <>
+            <div className="sec-t">Exercise from your instructor</div>
+            <div className="form-row">
+              <input placeholder="Paste the exercise link or code (leave blank for a random section)" value={exCode} onChange={ev => setExCode(ev.target.value)} style={{ flex: 1 }} />
+              {exCode.trim() && <span className={exDef ? 'c-green' : 'c-red'}>{exDef ? `${exDef.work} on ${exDef.feeder}` : 'Not a valid code'}</span>}
+            </div>
+          </>}
           <div className="sec-t">Objectives</div>
           {sc.objectives.map(o => <div key={o.id} className="obj"><span className="dim mono">{o.id}</span>{o.text}</div>)}
         </div>
@@ -103,10 +114,11 @@ export function ScenarioModal({ current, onStart, onClose, saved, onResume, onLo
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {saved.autosave && <button className="btn" onClick={onResume}>Resume autosave ({new Date(saved.autosave).toLocaleTimeString()})</button>}
             {saved.manual && <button className="btn" onClick={onLoadManual}>Load saved ({new Date(saved.manual).toLocaleTimeString()})</button>}
+            <button className="btn" onClick={onInstructor} title="Build switching exercises and open student reports">Instructor…</button>
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <span className="dim">Seed</span><input value={seed} onChange={ev => setSeed(ev.target.value.replace(/\D/g, ''))} style={{ width: 80 }} className="mono" />
-            <button className="btn pri" onClick={() => onStart(sel, Number(seed) || 1, emgOn ? emgDelay() : undefined)}>Start scenario {sel}{emgOn ? ' + emergency' : ''}</button>
+            <button className="btn pri" disabled={sel === 'X' && !!exCode.trim() && !exDef} onClick={() => (sel === 'X' && exDef ? onStartExercise(exDef) : onStart(sel, Number(seed) || 1, emgOn ? emgDelay() : undefined))}>Start scenario {sel}{emgOn ? ' + emergency' : ''}</button>
           </div>
         </div>
       </div>

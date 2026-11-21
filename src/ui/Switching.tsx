@@ -5,6 +5,45 @@ import { useCtx } from './ctx';
 import type { DevEl } from '../sim/types';
 import { devWord } from '../sim/radio';
 import { SayOr } from './VoiceUi';
+import { FindingsList, download } from './Instructor';
+import { buildReport, workSection, workLocation, type ExState } from '../sim/exercise';
+
+/** Banner for a running switching exercise. */
+function ExerciseBar() {
+  const { e, setSel } = useCtx();
+  const ex = e.s.scen.flags.ex as ExState | undefined;
+  const [name, setName] = useState(ex?.student ?? '');
+  if (!ex) return null;
+  const def = ex.def, ws = workSection(e, def), loc = workLocation(e, def);
+  const last = ex.submissions.at(-1);
+  const save = () => {
+    const r = buildReport(e);
+    if (r) download(r, `switching-report-${def.id}-${(ex.student || 'student').replace(/[^a-z0-9]+/gi, '-')}.json`);
+  };
+  return (
+    <div className="exbar">
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span className="badge cyan">EXERCISE {def.id}</span>
+        <b>{def.work} on {def.feeder}</b>
+        <span className="dim">Crew {def.truck} on site at {loc.loc}</span>
+        <button className="btn sm" onClick={() => setSel({ kind: 'truck', id: def.truck })}>Show crew</button>
+        <span style={{ flex: 1 }} />
+        <input placeholder="Your name" value={name} onChange={ev => setName(ev.target.value)} onBlur={() => e.exSetStudent(name)} style={{ width: 150 }} />
+        {!ex.finished
+          ? <button className="btn" onClick={() => { e.exSetStudent(name); if (confirm('Finish the exercise now and download your report?')) { e.exFinish(); setTimeout(save, 50); } }}>Finish &amp; download report</button>
+          : <button className="btn pri" onClick={() => { e.exSetStudent(name); setTimeout(save, 50); }}>Download report</button>}
+      </div>
+      <div style={{ fontSize: 11.5, marginTop: 3 }}>
+        Isolate the work section ({ws.customers} customers on planned outage). Pick up everyone else you can, mark the hold point, and <b>submit the order for a check</b> before you activate it.
+        {def.notes && <div className="c-amber" style={{ marginTop: 2 }}>Instructor: {def.notes}</div>}
+      </div>
+      {last && (def.coach
+        ? <div style={{ marginTop: 4 }}><FindingsList check={last.check} /></div>
+        : <div className="dim" style={{ fontSize: 11, marginTop: 3 }}>{ex.submissions.length} submission{ex.submissions.length > 1 ? 's' : ''} recorded. Your instructor will see the check in your report.</div>)}
+      {ex.finished && <div className="c-green" style={{ fontSize: 12, marginTop: 3 }}>Exercise complete. Download your report and send it to your instructor.</div>}
+    </div>
+  );
+}
 
 export function SwitchingView() {
   const { e, swPrefill, setSwPrefill, openSbo, flash, setSel } = useCtx();
@@ -32,6 +71,7 @@ export function SwitchingView() {
   const run = (er: string | null | undefined) => { if (er) { flash(er, 'warn'); setErr(er); } else setErr(''); };
   const step = o?.steps[o.cur];
   const clrs = Object.values(e.s.clearances).filter(c => c.status === 'Active');
+  const ex = e.s.scen.flags.ex as ExState | undefined;
 
   return (
     <div className="sw">
@@ -61,6 +101,7 @@ export function SwitchingView() {
       </div>
 
       <div className="sw-main">
+        <ExerciseBar />
         {!o ? <div className="empty">Create a switching order, or use “Add to switching order” from any device.</div> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -68,11 +109,15 @@ export function SwitchingView() {
               <span>{o.title}</span>
               <span className={`badge ${o.status === 'Active' ? 'cyan' : o.status === 'Complete' ? 'green' : 'amber'}`}>{o.status}</span>
               <span style={{ flex: 1 }} />
+              {o.status === 'Draft' && ex && (() => { const sb = e.exSubmission(o.id); return <>
+                {sb && <span className={`badge ${sb.current ? 'green' : 'amber'}`}>{sb.current ? 'Submitted' : 'Changed since submit'}</span>}
+                <button className="btn" onClick={() => run(e.exSubmit(o.id))}>{sb ? 'Resubmit for check' : 'Submit for check'}</button>
+              </>; })()}
               {o.status === 'Draft' && <button className="btn pri" onClick={() => run(e.activateOrder(o.id))}>Approve &amp; activate</button>}
               {(o.status === 'Draft' || o.status === 'Active') && <button className="btn" onClick={() => e.cancelOrder(o.id)}>Cancel order</button>}
             </div>
             <table className="grid" style={{ marginTop: 8 }}>
-              <thead><tr><th>#</th><th>Action</th><th>Device</th><th>Location</th><th>By</th><th>Loop</th><th>Status</th><th>Time</th><th></th></tr></thead>
+              <thead><tr><th>#</th><th>Action</th><th>Device</th><th>Location</th><th>By</th><th>Loop</th><th>Status</th><th>Time</th><th title="Hold point: stop after this step until the clearance is released">Hold</th><th></th></tr></thead>
               <tbody>
                 {o.steps.map((s, i) => {
                   const d = e.T.els[s.dev] as DevEl;
@@ -87,13 +132,16 @@ export function SwitchingView() {
                         <td>{s.loop ? <span className="badge amber">LOOP</span> : ''}</td>
                         <td>{s.status}{s.note ? <div className="c-red" style={{ fontSize: 10, whiteSpace: 'normal', maxWidth: 260 }}>{s.note}</div> : null}</td>
                         <td className="mono dim">{s.doneT ? e.hhmm(s.doneT) : ''}</td>
+                        <td>{o.status !== 'Complete' && o.status !== 'Cancelled'
+                          ? <button className={`btn sm ${o.holdAfter === i ? 'on' : ''}`} title="Hold after this step" onClick={() => e.setHold(o.id, i)}>{o.holdAfter === i ? 'HOLD' : 'hold'}</button>
+                          : o.holdAfter === i ? <span className="badge cyan">HOLD</span> : null}</td>
                         <td>{o.status !== 'Complete' && s.status === 'Pending' && i >= o.cur && <button className="btn sm" onClick={() => e.removeStep(o.id, i)}>✕</button>}</td>
                       </tr>
-                      {o.holdAfter === i && <tr className="hold"><td colSpan={9}>HOLD POINT — work under clearance. Continue only after the crew releases the clearance.</td></tr>}
+                      {o.holdAfter === i && <tr className="hold"><td colSpan={10}>HOLD POINT — work under clearance. Continue only after the crew releases the clearance.</td></tr>}
                     </Fragment>
                   );
                 })}
-                {o.steps.length === 0 && <tr><td colSpan={9} className="empty">No steps yet.</td></tr>}
+                {o.steps.length === 0 && <tr><td colSpan={10} className="empty">No steps yet.</td></tr>}
               </tbody>
             </table>
 

@@ -9,7 +9,8 @@ export function devWord(d: DevEl | undefined): string {
   switch (d.type) {
     case 'breaker': return 'breaker';
     case 'recloser': return 'recloser';
-    case 'switch': return 'switch';
+    case 'switch': return d.grp ? 'bypass switch' : 'switch';
+    case 'disc': return 'disconnect';
     case 'tie': return 'tie switch';
     case 'fuse': return 'fuse';
     case 'xfmr': return 'transformer';

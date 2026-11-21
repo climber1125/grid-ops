@@ -93,6 +93,8 @@ const TIES: TieSpec[] = [
   { id: 'TS-12', from: 'IW-2110', to: 'CH-1220', toPos: [33.2290, -97.1420], path: [[33.2290, -97.1330], [33.2290, -97.1420]], scada: false },
   { id: 'TS-13', from: 'BS-3110', to: 'CH-1220', toPos: [33.2190, -97.1560], path: [[33.2120, -97.1560], [33.2190, -97.1560]], scada: true },
   { id: 'TS-14', from: 'BS-3120', to: 'IW-2120', toPos: [33.2030, -97.1020], path: [[33.2030, -97.1140], [33.2030, -97.1020]], scada: false },
+  // Alternate source for the water treatment plant on the IW-2120 tail.
+  { id: 'TS-15', from: 'IW-2120', to: 'BS-3120', toPos: [33.1930, -97.1140], path: [[33.1930, -97.0880], [33.1930, -97.1140]], scada: false },
 ];
 
 const STREETS = [
@@ -134,8 +136,19 @@ export function buildTopology(): Topology {
   let nSeq = 0, txSeq = 4100, streetIdx = 0;
   const mkNode = (pos: LatLng) => { const id = 'N' + (nSeq++); T.nodes[id] = { id, pos }; T.adj[id] = []; return id; };
   const addEl = (el: LineEl | DevEl) => { T.els[el.id] = el; T.adj[el.from].push(el.id); T.adj[el.to].push(el.id); if (el.kind === 'device') T.devIds.push(el.id); };
-  const mkDev = (id: string, from: string, to: string, feeder: string, type: DevEl['type'], scada: boolean, normalOpen: boolean, pos: LatLng) =>
-    addEl({ id, kind: 'device', from, to, feeder, type, scada, normalOpen, pos, loc: nearestName(pos) });
+  const EQUIP: Partial<Record<DevEl['type'], [string, boolean]>> = {
+    breaker: ['Feeder circuit breaker, 1200 A', true],
+    recloser: ['Three-phase electronic recloser, 560 A', true],
+    switch: ['Gang-operated air-break switch (GOAB), load-break, 600 A', true],
+    tie: ['Normally open tie, GOAB load-break, 600 A', true],
+    fuse: ['Lateral tap fuse (cutout), 65K', false],
+    xfmr: ['Distribution transformer with fused cutout', false],
+    disc: ['Single-phase disconnect (solid blade), NON-load-break', false],
+  };
+  const mkDev = (id: string, from: string, to: string, feeder: string, type: DevEl['type'], scada: boolean, normalOpen: boolean, pos: LatLng, extra?: Partial<DevEl>) => {
+    const [equip, lb] = EQUIP[type] ?? ['', true];
+    addEl({ id, kind: 'device', from, to, feeder, type, scada, normalOpen, pos, loc: nearestName(pos), equip, lb, ...extra });
+  };
   const mkLine = (id: string, from: string, to: string, feeder: string, path: LatLng[], ug: boolean, lateral: boolean, tie = false) =>
     addEl({ id, kind: 'line', from, to, feeder, len: cumLen(path).at(-1)!, ug, lateral, tie, path });
 
@@ -193,8 +206,11 @@ export function buildTopology(): Topology {
     const order = { vertex: 0, split: 1, crit: 2, com: 3, lat: 4, dev: 5 };
     pts.sort((a, b) => a.d - b.d || order[a.kind] - order[b.kind]);
 
+    // Feeder breaker, then the getaway disconnect that gives the visible open at the station.
+    const nb = mkNode(fs.path[0]);
     const n0 = mkNode(fs.path[0]);
-    mkDev(info.breaker, sub.bus, n0, fs.id, 'breaker', true, false, fs.path[0]);
+    mkDev(info.breaker, sub.bus, nb, fs.id, 'breaker', true, false, fs.path[0]);
+    mkDev(`D-${num}L`, nb, n0, fs.id, 'disc', false, false, fs.path[0], { vis: info.breaker, equip: 'Feeder getaway disconnect (gang-operated), NON-load-break — visible open for the breaker' });
     info.sch.push({ kind: 'dev', id: info.breaker, f: 0, node: n0 });
     info.vertNodes.push({ pos: fs.path[0], node: n0 });
     let cur = n0, curD = 0, segSeq = 0;
@@ -211,7 +227,20 @@ export function buildTopology(): Topology {
       const here = T.nodes[cur].pos;
       const [de, dn] = dirAt(fs.path, cum, Math.min(p.d + 1, L));
       if (p.kind === 'vertex') info.vertNodes.push({ pos: here, node: cur });
-      else if (p.kind === 'dev') {
+      else if (p.kind === 'dev' && p.ref.type === 'recloser') {
+        // Standard three-switch recloser bypass:
+        //   cur ─[D-xxxxA source disc]─ a ─[R-xxxx]─ b ─[D-xxxxB load disc]─ out
+        //   cur ──────────────[BP-xxxx bypass, normally open]─────────────── out
+        const n = p.ref.id.slice(2), grp = p.ref.id;
+        const at = (m: number) => offset(here, de * m, dn * m);
+        const a = mkNode(at(-6)), b = mkNode(at(6)), out = mkNode(at(12));
+        mkDev(`D-${n}A`, cur, a, fs.id, 'disc', false, false, at(-9), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break' });
+        mkDev(p.ref.id, a, b, fs.id, 'recloser', p.ref.scada, false, here, { grp });
+        mkDev(`D-${n}B`, b, out, fs.id, 'disc', false, false, at(9), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break' });
+        mkDev(`BP-${n}`, cur, out, fs.id, 'switch', false, true, offset(here, -dn * 14, de * 14), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open' });
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: out });
+        cur = out;
+      } else if (p.kind === 'dev') {
         const n2 = mkNode(here);
         mkDev(p.ref.id, cur, n2, fs.id, p.ref.type, p.ref.scada, false, here);
         info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: n2 });
