@@ -444,3 +444,36 @@ tr.tut-hl { outline-offset: -3px; background: rgba(255,212,0,.15); }
 .coach .ctodo.ok { background: rgba(60,200,120,.15); border-left-color: #3cc878; color: #7be0a8; font-weight: 600; }
 .coach .csay { margin-top: 6px; padding: 6px 8px; font-size: 12px; background: rgba(0,200,255,.1); border-left: 3px solid var(--cyan); border-radius: 3px; display: flex; flex-direction: column; gap: 2px; }
 .coach .csay span { font-size: 10px; opacity: .8; letter-spacing: .04em; }
+
+/* ── Switching exercises ───────────────────────────────────── */
+.exbar { border: 1px solid #1f5566; background: rgba(15, 52, 64, .35); border-radius: 4px; padding: 6px 8px; margin-bottom: 8px; font-size: 12px; }
+.findings { font-size: 11.5px; }
+.fnd { padding: 1px 0; line-height: 1.35; }
+.badge.big { font-size: 15px; padding: 4px 14px; }
+.form-grid { display: grid; grid-template-columns: 150px 1fr; gap: 6px 10px; align-items: center; font-size: 12px; }
+.form-grid > label:nth-child(odd) { color: var(--text2); }
+tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
+.report { font-size: 12px; }
+.report .kv { font-size: 12px; gap: 4px 10px; }
+.subm { border-left: 2px solid var(--line); padding-left: 8px; margin: 6px 0 10px; }
+.declog { font-size: 11px; max-height: 260px; overflow: auto; }
+.sec-d > summary { cursor: pointer; list-style: none; }
+@media print {
+  body * { visibility: hidden; }
+  .printable, .printable * { visibility: visible; }
+  html, body { background: #fff !important; }
+  .printable { position: absolute; inset: 0; max-width: none !important; width: 100%; box-shadow: none; border: 0; }
+  .printable, .printable * { background: transparent !important; color: #111 !important; border-color: #bbb !important; box-shadow: none !important; }
+  .printable .badge { border: 1px solid #888 !important; }
+  .printable .fnd.fail b, .printable .c-red, .printable .c-red * { color: #b00 !important; }
+  .printable .c-green, .printable .c-green * { color: #070 !important; }
+  .printable .c-amber, .printable .c-amber * { color: #a60 !important; }
+  .printable .badge.green { color: #070 !important; } .printable .badge.red { color: #b00 !important; } .printable .badge.amber { color: #a60 !important; }
+  .printable .mb { max-height: none !important; overflow: visible !important; }
+  .printable .no-print { display: none !important; }
+  .printable .declog { max-height: none; }
+  .printable .dim { color: #555 !important; }
+  .printable .c-red { color: #b00 !important; } .printable .c-green { color: #070 !important; } .printable .c-amber { color: #a60 !important; }
+  .printable table.grid th, .printable table.grid td { color: #111 !important; background: #fff !important; border-color: #aaa !important; }
+  .printable details { display: block; } .printable details > * { display: block; }
+}

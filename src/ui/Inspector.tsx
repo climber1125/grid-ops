@@ -59,6 +59,8 @@ function DevView({ id }: { id: string }) {
         </span>
         <span className="k">Normal</span><span className="v">{d.normalOpen ? 'Normally OPEN' : 'Normally CLOSED'}{st.open !== d.normalOpen ? <span className="c-amber"> · ABNORMAL</span> : null}</span>
         <span className="k">Location</span><span className="v">{d.loc}</span>
+        {d.equip && <><span className="k">Equipment</span><span className="v" style={{ whiteSpace: 'normal' }}>{d.equip}</span></>}
+        {d.lb === false && d.type !== 'fuse' && d.type !== 'xfmr' && <><span className="k">Load-break</span><span className="v c-red">NO — don't make or break load</span></>}
         <span className="k">Control</span><span className="v">{d.scada ? (st.comm ? <span className="c-green">SCADA · comm OK</span> : <span className="c-amber">SCADA · COMM FAIL</span>) : 'Manual (field crew)'}</span>
         {d.scada && <><span className="k">Load (est.)</span><span className="v">{en && !st.open ? `${e.devAmps(id).toFixed(0)} A` : '0 A'}</span></>}
         <span className="k">Downstream</span><span className="v">{e.T.devCust[id].toLocaleString()} cust (normal)</span>

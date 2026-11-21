@@ -5,7 +5,7 @@
 
 export type LatLng = [number, number];
 
-export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr';
+export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr' | 'disc';
 export type LoadClass = 'res' | 'apt' | 'com' | 'ind' | 'critical';
 
 export interface NetNode { id: string; pos: LatLng; }
@@ -17,6 +17,14 @@ export interface LineEl {
 export interface DevEl {
   id: string; kind: 'device'; from: string; to: string; feeder: string;
   type: DevType; scada: boolean; normalOpen: boolean; pos: LatLng; loc: string;
+  /** Can interrupt / pick up load. Disconnects and recloser bypass blades cannot. */
+  lb?: boolean;
+  /** Recloser bypass group (e.g. 'R-1215') this device belongs to. */
+  grp?: string;
+  /** Equipment description for the inspector and device list. */
+  equip?: string;
+  /** For disconnects: the breaker/recloser this gives a visible open for. */
+  vis?: string;
 }
 export type El = LineEl | DevEl;
 
@@ -147,6 +155,8 @@ export interface SwStep {
   dev: string; action: 'open' | 'close'; exec: string; // 'SCADA' or truck id
   loop: boolean; status: StepStatus; rbDev?: string; rbAction?: 'open' | 'close'; note?: string; doneT?: number;
   injectError?: boolean; injectErrorDev?: string;
+  /** Execution log for instructor review: issued, repeat-back, confirm/reject, operated. */
+  log?: { t: number; ev: string; ok?: boolean }[];
 }
 export interface SwitchingOrder {
   id: string; title: string; steps: SwStep[]; status: 'Draft' | 'Active' | 'Complete' | 'Cancelled';

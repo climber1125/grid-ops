@@ -14,6 +14,7 @@ import { solve, pathToSource, sectionAround, faultNode, type NetState } from './
 import { mulberry } from './rng';
 import { dist, bearing, lerp } from './geo';
 import { route, nearestName, SERVICE_CENTER } from './roads';
+import { checkOrder, type ExerciseDef, type ExState } from './exercise';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
 import { parseRadio } from './voice';
@@ -92,7 +93,7 @@ export class Engine {
     this.computeReadings();
   }
 
-  static create(scenarioId: string, seed: number): Engine {
+  static create(scenarioId: string, seed: number, opts: { exercise?: ExerciseDef; student?: string } = {}): Engine {
     const T = TOPO;
     const dev: SimState['dev'] = {};
     for (const id of T.devIds) dev[id] = { open: (T.els[id] as DevEl).normalOpen, lockout: false, tags: [], comm: true, ops: 0 };
@@ -105,6 +106,10 @@ export class Engine {
       scen: { id: scenarioId, obj: {}, flags: {}, done: false, startT: 0, aarShown: false },
       autoAssist: false, weather: { text: 'Clear, 78°F, wind S 8 mph', level: 'normal' }, loopSince: null, ids: {},
     };
+    if (opts.exercise) {
+      const ex: ExState = { def: opts.exercise, student: opts.student ?? '', startedWall: new Date().toISOString(), submissions: [], ops: [], unplanned: {}, cmiUnplanned: 0, lastT: 0, finished: false };
+      s.scen.flags.ex = ex;
+    }
     const e = new Engine(s);
     for (const o of e.scen.objectives) s.scen.obj[o.id] = { status: 'pending' };
     for (let i = 0; i < 6; i++) e.newWorkOrder();
@@ -407,7 +412,16 @@ export class Engine {
         return { ok: false, reason: `Closing ${id} would parallel ${n2.parallelSubs ? 'two substation sources' : 'two feeders'} — loop closures only as a LOOP step of an active switching order` };
       }
     }
+    const lbIssue = this.loadBreakIssue(id, action);
     st.open = wantOpen; st.ops++; st.lastT = this.s.t;
+    const ex = this.s.scen.flags.ex as ExState | undefined;
+    if (ex && !ex.finished && ctx.by !== 'model') ex.ops.push({ t: this.s.t, dev: id, action, by: ctx.by, order: ctx.order });
+    if (lbIssue) {
+      if (lbIssue.severe) {
+        this.violation('loadbreak', lbIssue.text);
+        if (ctx.by !== 'SCADA' && ctx.by !== 'model') this.say([[ctx.by, `Sparks Control, ${ctx.by}! That ${devWord(d)} drew a big arc when we ${wantOpen ? 'opened' : 'closed'} it. Everybody's OK. ${lbIssue.short}`], ['C', `Copy ${ctx.by}.`]], { unit: ctx.by, kind: 'switching' });
+      } else this.decision(lbIssue.text, false);
+    }
     if (!wantOpen) { st.lockout = false; st.tripFault = undefined; this.clearAlarm(`lockout:${id}`); this.clearAlarm(`trip:${id}`); }
     const who = ctx.by === 'SCADA' ? 'SCADA' : ctx.by === 'model' ? 'model' : `field, Truck ${ctx.by}`;
     this.soe(`${id} ${wantOpen ? 'OPEN' : 'CLOSE'} (${who})`, wantOpen ? 'open' : 'close', id);
@@ -420,6 +434,56 @@ export class Engine {
       else { this.decision(`Closed ${id} into an unlocated fault — protection re-tripped`, false); this.coach('You closed into a fault that is not found yet', 'The breaker tripped again because the fault is still there. Patrol the line with a crew to find it, isolate it, then restore around it. Say: "Truck 233, patrol the feeder."'); }
     }
     return { ok: true };
+  }
+
+  /**
+   * Non-load-break devices (disconnects, recloser bypass blades) may only be operated with no current to make or break.
+   * Returns null when the operation is fine.
+   */
+  loadBreakIssue(id: string, action: 'open' | 'close', devState = this.s.dev): { severe: boolean; text: string; short: string } | null {
+    const d = this.dev(id);
+    if (!d || d.lb !== false || d.type === 'fuse' || d.type === 'xfmr') return null;
+    const before = devState === this.s.dev ? this.net : solve(this.T, devState);
+    const trial = { ...devState, [id]: { ...devState[id], open: action === 'open' } };
+    const after = solve(this.T, trial);
+    let lose = 0, gain = 0;
+    for (const lid of this.T.loadIds) {
+      const n = this.T.loads[lid].node, was = before.en.has(n), now = after.en.has(n);
+      if (was && !now) lose += this.T.loads[lid].customers; else if (!was && now) gain += this.T.loads[lid].customers;
+    }
+    const w = devWord(d);
+    const local = d.grp ? this.groupPath(d.from, d.to, d.grp, id, action === 'open' ? trial : devState) : false;
+    if (action === 'open') {
+      if (lose > 0) return { severe: true, text: `Opened non-load-break ${w} ${id} under load (${lose} customers interrupted)`, short: 'It was carrying load.' };
+      const bothLive = after.en.has(d.from) && after.en.has(d.to);
+      if (bothLive && !local) return { severe: true, text: `Broke a feeder parallel with non-load-break ${w} ${id}`, short: 'It was in a parallel.' };
+      if (bothLive && local && d.type === 'disc') {
+        const r = this.T.els[d.grp!] ? this.s.dev[d.grp!] : null;
+        if (r && !r.open) return { severe: false, text: `Opened ${id} in parallel with bypass while ${d.grp} was still closed — open the recloser first, then the disconnects`, short: '' };
+      }
+      return null;
+    }
+    if (gain > 0) return { severe: true, text: `Picked up load with non-load-break ${w} ${id} (${gain} customers)`, short: 'It picked up load.' };
+    const madeLoop = after.loops.length > before.loops.length;
+    if (madeLoop && !local) return { severe: true, text: `Closed a feeder parallel with non-load-break ${w} ${id}`, short: 'It closed a parallel.' };
+    return null;
+  }
+
+  /** True if nodes a and b are tied together through closed devices of one recloser bypass group (ignoring one device). */
+  private groupPath(a: string, b: string, grp: string, skip: string, devState: SimState['dev']): boolean {
+    const seen = new Set([a]), q = [a];
+    while (q.length) {
+      const n = q.pop()!;
+      if (n === b) return true;
+      for (const eid of this.T.adj[n]) {
+        if (eid === skip) continue;
+        const el = this.T.els[eid] as DevEl;
+        if (el.kind !== 'device' || el.grp !== grp || devState[eid]?.open) continue;
+        const m = el.from === n ? el.to : el.from;
+        if (!seen.has(m)) { seen.add(m); q.push(m); }
+      }
+    }
+    return false;
   }
 
   /** What-if for a device operation (used by select-before-operate dialogs). */
@@ -1003,9 +1067,56 @@ export class Engine {
     if (!o || idx < o.cur || o.steps[idx]?.status !== 'Pending') return;
     o.steps.splice(idx, 1); this.bump();
   }
+  /** Exercise: the order as written must be submitted for a check before it can be activated. */
+  private orderSig(o: SwitchingOrder) { return JSON.stringify([o.steps.map(s => [s.dev, s.action, s.exec, s.loop]), o.holdAfter ?? null]); }
+  exSubmission(oid: string) {
+    const ex = this.s.scen.flags.ex as ExState | undefined;
+    const o = this.s.orders[oid];
+    if (!ex || !o) return null;
+    const sub = [...ex.submissions].reverse().find(x => x.order === oid);
+    if (!sub) return null;
+    const cur = this.orderSig(o) === JSON.stringify([sub.steps.map(s => [s.dev, s.action, s.exec, s.loop]), sub.holdAfter ?? null]);
+    return { sub, current: cur };
+  }
+  exSubmit(oid: string): string | null {
+    const ex = this.s.scen.flags.ex as ExState | undefined;
+    const o = this.s.orders[oid];
+    if (!ex) return 'No exercise running';
+    if (!o || o.status !== 'Draft') return 'Only a draft order can be submitted';
+    if (!o.steps.length) return 'Order has no steps';
+    const steps = o.steps.map(s => ({ dev: s.dev, action: s.action, exec: s.exec, loop: s.loop }));
+    const check = checkOrder(this, ex.def, steps, o.holdAfter, this.s.dev);
+    ex.submissions.push({ t: this.s.t, order: oid, title: o.title, steps, holdAfter: o.holdAfter, check });
+    this.decision(`Submitted ${oid} for check (submission ${ex.submissions.length})`);
+    this.log('SCENARIO', 'info', `${oid} submitted for check.`);
+    this.bump(); return null;
+  }
+  setHold(oid: string, idx: number | undefined) {
+    const o = this.s.orders[oid];
+    if (!o || o.status === 'Complete' || o.status === 'Cancelled') return;
+    o.holdAfter = o.holdAfter === idx ? undefined : idx; this.bump();
+  }
+  exSetStudent(name: string) { const ex = this.s.scen.flags.ex as ExState | undefined; if (ex) { ex.student = name.slice(0, 60); this.bump(); } }
+  exFinish() {
+    const ex = this.s.scen.flags.ex as ExState | undefined;
+    if (!ex || ex.finished) return;
+    ex.finished = true; ex.finishedWall = new Date().toISOString();
+    if (!this.s.scen.done) {
+      this.s.scen.done = true;
+      for (const [k, v] of Object.entries(this.s.scen.obj)) if (v.status === 'pending') this.s.scen.obj[k] = { status: 'fail', t: this.s.t, note: 'Not achieved' };
+    }
+    this.log('SCENARIO', 'info', 'Exercise finished — report ready to download.');
+    this.bump();
+  }
+
   activateOrder(oid: string) {
     const o = this.s.orders[oid];
     if (!o || o.status !== 'Draft' || !o.steps.length) return 'Order needs at least one step';
+    if (this.s.scen.flags.ex) {
+      const sub = this.exSubmission(oid);
+      if (!sub) return 'Submit the order for check before activating it';
+      if (!sub.current) return 'The order changed after you submitted it — submit it again';
+    }
     o.status = 'Active';
     this.decision(`Approved and activated switching order ${oid} (${o.steps.length} steps)`);
     this.log('DISPATCH', 'info', `${oid} activated — ${o.title}`);
@@ -1014,6 +1125,16 @@ export class Engine {
   cancelOrder(oid: string) { const o = this.s.orders[oid]; if (o && o.status !== 'Complete') { o.status = 'Cancelled'; this.decision(`Cancelled ${oid}`); this.bump(); } }
 
   /** Issue the current step. SCADA steps execute immediately (UI confirms SBO first). */
+  private stepLog(st: SwStep, ev: string, ok?: boolean) { (st.log ??= []).push({ t: this.s.t, ev, ok }); }
+
+  /** Customer kW at the current hour (no jitter) — used for loading checks. */
+  loadKw(lid: string) {
+    const h = this.hourOfDay(), i0 = Math.floor(h) % 24, fr = h - Math.floor(h);
+    const curve = CURVE[i0] * (1 - fr) + CURVE[(i0 + 1) % 24] * fr;
+    const L = this.T.loads[lid];
+    return L.customers * L.kwPer * (L.cls === 'res' || L.cls === 'apt' ? curve : 0.55 + 0.45 * curve);
+  }
+
   issueStep(oid: string): string | null {
     const o = this.s.orders[oid];
     if (!o || o.status !== 'Active') return 'Order not active';
@@ -1023,8 +1144,9 @@ export class Engine {
     const d = this.dev(st.dev);
     if (st.exec === 'SCADA') {
       const r = this.operate(st.dev, st.action, { by: 'SCADA', loopOk: st.loop, order: oid });
-      if (!r.ok) { st.status = 'Failed'; st.note = r.reason; this.log('SCADA', 'warn', `${oid} step ${o.cur + 1} failed: ${r.reason}`); this.bump(); return r.reason!; }
+      if (!r.ok) { st.status = 'Failed'; st.note = r.reason; this.stepLog(st, `SCADA ${st.action} ${st.dev} failed: ${r.reason}`, false); this.log('SCADA', 'warn', `${oid} step ${o.cur + 1} failed: ${r.reason}`); this.bump(); return r.reason!; }
       st.status = 'Done'; st.doneT = this.s.t;
+      this.stepLog(st, `SCADA ${st.action.toUpperCase()} ${st.dev} — done`, true);
       this.decision(`${oid} step ${o.cur + 1}: SCADA ${st.action} ${st.dev}`);
       this.advanceOrder(o);
       this.bump(); return null;
@@ -1037,6 +1159,7 @@ export class Engine {
     if (tr.task?.kind === 'workorder') { this.s.workorders[tr.task.id].status = 'Open'; tr.task = null; }
     tr.sw = { order: oid, idx: o.cur }; tr.tok++; tr.route = null; tr.status = 'Switching';
     st.status = 'Issued'; st.note = undefined;
+    this.stepLog(st, `Issued to Truck ${tr.id}`);
     const act = st.action === 'open' ? 'Open' : 'Close';
     const end = this.voiced ? 2.5 : this.say([
       ['C', `Truck ${tr.id}, Sparks Control, switching.`],
@@ -1061,6 +1184,7 @@ export class Engine {
       correct = false;
     }
     if (!correct) {
+      this.stepLog(st, wrong ? 'Operator: "Negative" — caught the wrong repeat-back' : 'Operator: "Negative" on a correct repeat-back', wrong);
       if (wrong) { this.decision(`Caught incorrect repeat-back from ${tr.id} (${st.rbAction} ${st.rbDev})`, true); this.s.scen.flags.caughtRepeat = true; }
       else { this.decision(`Rejected a correct repeat-back from ${tr.id}`, false); this.coach('That repeat-back was actually correct', 'Compare the crew repeat-back to your step: same device, same action. If they match, confirm with "That is correct, perform." (or say "correct").'); }
       const d = this.dev(st.dev);
@@ -1069,6 +1193,7 @@ export class Engine {
       this.schedule(end + 1, 'sw', { order: oid, idx: o.cur, phase: 'repeat' });
       this.bump(); return null;
     }
+    this.stepLog(st, wrong ? `Operator CONFIRMED a wrong repeat-back (${st.rbAction} ${st.rbDev})` : 'Operator confirmed: "That\'s correct, perform"', !wrong);
     if (wrong) { this.violation('repeat-back', `Confirmed an incorrect repeat-back (${tr.id} repeated ${st.rbAction} ${st.rbDev}; order says ${st.action} ${st.dev})`); this.s.scen.flags.missedRepeat = true; }
     else this.decision(`Confirmed repeat-back from ${tr.id}, step ${o.cur + 1}`, true);
     st.status = 'InProgress';
@@ -1109,6 +1234,7 @@ export class Engine {
         if (rbDev === st.dev) rbAction = st.action === 'open' ? 'close' : 'open';
       }
       st.rbDev = rbDev; st.rbAction = rbAction; st.status = 'RepeatBack';
+      this.stepLog(st, `${tr.id} repeated: ${rbAction.toUpperCase()} ${rbDev}${rbDev !== st.dev || rbAction !== st.action ? ' (WRONG)' : ''}`, rbDev === st.dev && rbAction === st.action);
       const rd = this.dev(rbDev);
       this.say([[tr.id, `${tr.id} repeating, switching order ${o.id} step ${o.cur + 1}: ${rbAction === 'open' ? 'open' : 'close'} ${devWord(rd)} ${rbDev} at ${rd.loc}.`]], { kind: 'switching', unit: tr.id });
       this.log('DISPATCH', 'warn', `${tr.id} repeat-back on ${o.id} step ${o.cur + 1} — confirm or correct`);
@@ -1117,6 +1243,7 @@ export class Engine {
       const r = this.operate(st.rbDev!, st.rbAction!, { by: tr.id, loopOk: st.loop && st.rbDev === st.dev, order: o.id });
       if (!r.ok) {
         st.status = 'Failed'; st.note = r.reason;
+        this.stepLog(st, `${tr.id} unable to ${st.rbAction} ${st.rbDev}: ${r.reason}`, false);
         this.say([[tr.id, `Control, ${tr.id}. Unable to ${st.rbAction} ${st.rbDev}. ${r.reason}.`], ['C', `Copy ${tr.id}, stand by.`]], { kind: 'switching', unit: tr.id });
         tr.sw = null; this.restoreTruckStatus(tr);
         this.bump(); return;
@@ -1127,6 +1254,7 @@ export class Engine {
         ['C', `Copy ${tr.id}, ${st.rbDev} ${state} at ${this.hhmm()}.`],
       ], { kind: 'switching', unit: tr.id });
       st.status = 'Done'; st.doneT = this.s.t;
+      this.stepLog(st, `${tr.id} operated ${st.rbAction!.toUpperCase()} ${st.rbDev} — reported complete`, st.rbDev === st.dev && st.rbAction === st.action);
       tr.sw = null; this.restoreTruckStatus(tr);
       this.advanceOrder(o);
     }
@@ -2080,9 +2208,16 @@ export class Engine {
   /** Mainline line element between two devices on a feeder (used by scenarios). */
   mainElAfter(devId: string, offset = 1): string {
     const d = this.dev(devId);
-    const n = d.to;
     const F = this.T.feeders[d.feeder];
-    const idx = F.mainEls.findIndex(e => (this.T.els[e] as LineEl).from === n);
+    // Walk forward through any series devices (recloser bypass disconnects) to where the next main line starts.
+    let n = d.to, idx = -1;
+    for (let hop = 0; hop < 4; hop++) {
+      idx = F.mainEls.findIndex(e => (this.T.els[e] as LineEl).from === n);
+      if (idx >= 0) break;
+      const nx = this.T.adj[n].map(id => this.T.els[id]).find(el => el.kind === 'device' && el.from === n && (el as DevEl).type === 'disc');
+      if (!nx) break;
+      n = nx.to;
+    }
     return F.mainEls[Math.max(0, idx) + offset - 1];
   }
 }

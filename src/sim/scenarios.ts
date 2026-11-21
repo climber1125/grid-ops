@@ -8,6 +8,7 @@ import type { Cause, DevEl, LatLng } from './types';
 import { SERVICE_CENTER, nearestName } from './roads';
 import { sectionAround } from './network';
 import { offset, dist } from './geo';
+import { generateExercise, workSection, workLocation, type ExState } from './exercise';
 import type { LineEl } from './types';
 
 export interface ScenarioDef {
@@ -623,6 +624,79 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
     },
     isDone(e) { return Object.values(e.s.scen.obj).every(o => o.status !== 'pending') && (e.s.scen.flags.tutStep ?? 0) >= 99; },
   },
+
+  X: {
+    id: 'X', short: 'X', name: 'Switching Exercise',
+    brief: 'A crew is on site for planned work on a section of line. Write the switching order to isolate that section and pick up as many customers as you can from other sources, mark the hold point, and submit the order for a check. Then run it by radio, issue the clearance, and restore to normal when the crew releases. Your instructor gets a full report of the order and how you ran it. Use the instructor link, or start here for a random section.',
+    objectives: [
+      { id: 'x1', text: 'Submit the switching order for a check before running it' },
+      { id: 'x2', text: 'Isolate the work section with no safety violations' },
+      { id: 'x3', text: 'Issue the clearance on the isolated, de-energized section' },
+      { id: 'x4', text: 'No customers outside the work section interrupted' },
+      { id: 'x5', text: 'Catch every wrong repeat-back' },
+      { id: 'x6', text: 'Return the system to normal after the clearance is released' },
+    ],
+    background: {},
+    setup(e) {
+      if (!e.s.scen.flags.ex) {
+        const def = generateExercise(e.T, () => e.rand());
+        const ex: ExState = { def, student: '', startedWall: new Date().toISOString(), submissions: [], ops: [], unplanned: {}, cmiUnplanned: 0, lastT: 0, finished: false };
+        e.s.scen.flags.ex = ex;
+      }
+      const ex = e.s.scen.flags.ex as ExState, def = ex.def;
+      e.s.autoAssist = true;
+      e.s.scen.flags.plannedMinutes = def.minutes;
+      const ws = workSection(e, def);
+      for (const l of ws.loads) e.s.planned[l] = true;
+      const loc = workLocation(e, def);
+      const tr = e.addTruck(def.truck, offset(loc.pos, 18, 12));
+      for (const id of ['230', '233', '235', '240']) if (id !== def.truck) e.addTruck(id, SERVICE_CENTER);
+      tr.task = { kind: 'planned', id: def.id }; tr.status = 'Standing By';
+      tr.waitIso = { inc: '', devs: ws.points, purpose: def.work };
+      (tr.waitIso as any).el = def.workEl;
+      e.log('OMS', 'info', `Planned outage notice sent to ${ws.customers} customers on ${def.feeder} for ${def.work.toLowerCase()} (${def.id}).`);
+      e.say([
+        [def.truck, `Sparks Control, ${def.truck}. On location ${loc.loc} for the planned job, ${def.work.toLowerCase()} on ${def.feeder}. Ready for switching when you have the order written.`],
+        ['C', `Copy ${def.truck}, stand by for the switching order.`],
+      ], { unit: def.truck, start: 3 });
+    },
+    periodic(e) {
+      const ex = e.s.scen.flags.ex as ExState | undefined;
+      if (!ex || ex.finished) return;
+      const dt = e.s.t - ex.lastT; ex.lastT = e.s.t;
+      for (const lid of e.T.loadIds) {
+        const L = e.T.loads[lid];
+        if (e.s.planned[lid] || e.net.en.has(L.node)) continue;
+        const u = (ex.unplanned[lid] ??= { first: e.s.t, last: e.s.t, cust: L.customers });
+        u.last = e.s.t; ex.cmiUnplanned += L.customers * dt / 60;
+      }
+      const def = ex.def, F = e.s.scen.flags;
+      const active = Object.values(e.s.orders).some(o => o.status === 'Active' || o.status === 'Complete');
+      if (active && ex.submissions.length) e.setObj('x1', 'pass');
+      const unsafe = e.s.metrics.violations.filter(v => v.code !== 'repeat-back');
+      const clr = Object.values(e.s.clearances).find(c => c.truck === def.truck);
+      if (unsafe.length) e.setObj('x2', 'fail', unsafe[0].text);
+      else if (clr) e.setObj('x2', 'pass');
+      if (e.s.metrics.violations.some(v => v.code === 'clearance')) e.setObj('x3', 'fail');
+      else if (clr) e.setObj('x3', 'pass');
+      if (Object.keys(ex.unplanned).length) e.setObj('x4', 'fail', `${Object.values(ex.unplanned).reduce((a, u) => a + u.cust, 0)} customers outside the section interrupted`);
+      if (F.missedRepeat) e.setObj('x5', 'fail', 'A wrong repeat-back was confirmed');
+      if (clr?.status === 'Released') {
+        const tr = e.truck(def.truck);
+        if (tr?.task?.kind === 'planned') {
+          e.say([['C', `Truck ${def.truck}, Sparks Control. Copy you're clear of the planned job. Thank you.`], [def.truck, `${def.truck} copies, clear.`]], { unit: def.truck, start: 4 });
+          e.freeTruck(tr);
+        }
+        if (allNormal(e) && !Object.values(e.s.orders).some(o => o.status === 'Active')) {
+          e.setObj('x6', 'pass');
+          if (!F.missedRepeat) e.setObj('x5', 'pass');
+          if (!Object.keys(ex.unplanned).length) e.setObj('x4', 'pass');
+          e.exFinish();
+        }
+      }
+    },
+    isDone(e) { const ex = e.s.scen.flags.ex as ExState | undefined; return !!ex?.finished || e.s.t > 4 * 3600; },
+  },
 };
 
-export const SCENARIO_LIST = ['T', 'A', 'B', 'C', 'D', 'E', 'F', 'G'];
+export const SCENARIO_LIST = ['T', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'X'];
