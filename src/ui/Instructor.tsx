@@ -1,13 +1,20 @@
 // Instructor tools: build a switching exercise to send to a student, and open the report they send back.
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Engine } from '../sim/engine';
 import { TOPO } from '../sim/topology';
 import type { DevEl } from '../sim/types';
-import { devWord } from '../sim/radio';
+import { devWord, ACTION_LABEL } from '../sim/radio';
+import type { SwAction } from '../sim/types';
+
+/** Pill for an action: open = green outline, close = red, controls = cyan. */
+export function ActPill({ a }: { a: SwAction }) {
+  return <span className={`state ${a === 'open' ? 'open' : a === 'close' ? 'closed' : 'ctl'}`}>{ACTION_LABEL[a]}</span>;
+}
 import { sectionAround } from '../sim/network';
 import {
-  listSections, generateExercise, encodeExercise, referenceOrder, checkOrder, workLocation, WORK_TYPES,
-  type ExerciseDef, type ExReport, type Finding, type OrderCheck,
+  listSections, listBypassable, generateExercise, encodeExercise, referenceOrder, checkOrder, workLocation, WORK_TYPES, BYPASS_WORK,
+  RULE_PRESETS, RULE_TEXT, DEFAULT_RULES,
+  type ExerciseDef, type ExReport, type Finding, type OrderCheck, type CompanyRules, type RuleLevel,
 } from '../sim/exercise';
 
 export function exerciseLink(def: ExerciseDef) {
@@ -46,7 +53,7 @@ function StepsTable({ steps, holdAfter }: { steps: { dev: string; action: string
           return (
             <tr key={i} className={holdAfter === i ? 'holdrow' : ''}>
               <td className="mono">{i + 1}</td>
-              <td><span className={`state ${s.action === 'open' ? 'open' : 'closed'}`}>{s.action.toUpperCase()}</span></td>
+              <td><ActPill a={s.action as SwAction} /></td>
               <td className="mono">{s.dev} <span className="dim">{devWord(d)}</span></td>
               <td>{d?.loc}</td>
               <td className="mono">{s.exec === 'SCADA' ? 'SCADA' : `Truck ${s.exec}`}</td>
@@ -60,25 +67,61 @@ function StepsTable({ steps, holdAfter }: { steps: { dev: string; action: string
 }
 
 // ── Create exercise ─────────────────────────────────────────
+const LEVEL_TEXT: Record<RuleLevel, string> = { fail: 'Required / not allowed (fail)', warn: 'Flag it (warning)', off: 'Not graded' };
+const CROSS_TEXT: Record<RuleLevel, string> = { fail: 'Not allowed — break-before-make only', warn: 'Allowed with approval (flagged)', off: 'Allowed' };
+
+function RulesEditor({ rules, setRules, preset, setPreset }: { rules: CompanyRules; setRules(r: CompanyRules): void; preset: string; setPreset(p: string): void }) {
+  return (
+    <>
+      <label>Company rules</label>
+      <div>
+        <select value={preset} onChange={ev => { setPreset(ev.target.value); if (RULE_PRESETS[ev.target.value]) setRules(RULE_PRESETS[ev.target.value].rules); }}>
+          {Object.entries(RULE_PRESETS).map(([k, p]) => <option key={k} value={k}>{p.name}</option>)}<option value="custom">Custom</option>
+        </select>
+        <span className="dim" style={{ marginLeft: 8, fontSize: 11 }}>{RULE_PRESETS[preset]?.about ?? 'Your own mix of the rules below.'}</span>
+      </div>
+      {(Object.keys(RULE_TEXT) as (keyof CompanyRules)[]).map(k => (
+        <Fragment key={k}>
+          <label style={{ paddingLeft: 12 }}>{RULE_TEXT[k]}</label>
+          <select value={rules[k]} onChange={ev => { setPreset('custom'); setRules({ ...rules, [k]: ev.target.value as RuleLevel }); }}>
+            {(['fail', 'warn', 'off'] as RuleLevel[]).map(l => <option key={l} value={l}>{k === 'crossSub' ? CROSS_TEXT[l] : LEVEL_TEXT[l]}</option>)}
+          </select>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 function CreateExercise({ onStartHere }: { onStartHere(def: ExerciseDef): void }) {
   const eng = useMemo(() => Engine.create('A', 1), []);
   const sections = useMemo(() => listSections(TOPO), []);
+  const equipment = useMemo(() => listBypassable(TOPO), []);
+  const [kind, setKind] = useState<'isolate' | 'bypass'>('isolate');
   const [feeder, setFeeder] = useState(TOPO.feederIds[0]);
   const fsecs = sections.filter(s => s.feeder === feeder);
   const [secKey, setSecKey] = useState(fsecs[0]?.key ?? '');
-  const sec = sections.find(s => s.key === secKey) ?? fsecs[0];
+  const sec = sections.find(s => s.key === secKey && s.feeder === feeder) ?? fsecs[0];
+  const [equip, setEquip] = useState('VR-3117');
+  const eq = equipment.find(x => x.id === equip) ?? equipment[0];
   const [work, setWork] = useState(WORK_TYPES[0]);
   const [truck, setTruck] = useState('233');
   const [minutes, setMinutes] = useState(15);
   const [coach, setCoach] = useState(false);
   const [notes, setNotes] = useState('');
+  const [preset, setPreset] = useState('standard');
+  const [rules, setRules] = useState<CompanyRules>(DEFAULT_RULES);
   const [showKey, setShowKey] = useState(false);
   const [copied, setCopied] = useState(false);
   const [exId] = useState(() => 'EX-' + Math.floor(1000 + Math.random() * 9000));
   const [genDef, setGenDef] = useState<ExerciseDef | null>(null);
+  const workList = kind === 'bypass' ? BYPASS_WORK[eq.type as 'reg' | 'recloser'] : WORK_TYPES;
+  const rulesName = RULE_PRESETS[preset]?.name ?? 'Custom';
 
-  const def: ExerciseDef | null = genDef ?? (sec ? { v: 1, id: exId, title: `${work} on ${sec.feeder}`, feeder: sec.feeder, workEl: sec.el, work, truck, minutes, coach, by: 'instructor', notes: notes.trim() || undefined } : null);
-  const ref = useMemo(() => (def ? referenceOrder(eng, def) : null), [eng, def?.workEl, def?.truck]); // eslint-disable-line react-hooks/exhaustive-deps
+  const def: ExerciseDef | null = genDef ?? (kind === 'bypass'
+    ? { v: 1, id: exId, title: `Bypass ${eq.id}`, kind, feeder: eq.feeder, workEl: eq.id, work: workList.includes(work) || !WORK_TYPES.includes(work) ? work : workList[0], truck, minutes, coach, by: 'instructor', notes: notes.trim() || undefined, rules, rulesName }
+    : sec ? { v: 1, id: exId, title: `${work} on ${sec.feeder}`, kind, feeder: sec.feeder, workEl: sec.el, work, truck, minutes, coach, by: 'instructor', notes: notes.trim() || undefined, rules, rulesName } : null);
+  const sig = JSON.stringify([def?.kind, def?.workEl, def?.truck, def?.rules]);
+  const ref = useMemo(() => (def ? referenceOrder(eng, def) : null), [eng, sig]); // eslint-disable-line react-hooks/exhaustive-deps
   const refCheck = useMemo(() => (def && ref ? checkOrder(eng, def, ref.steps, ref.holdAfter) : null), [ref]); // eslint-disable-line react-hooks/exhaustive-deps
   const link = def ? exerciseLink(def) : '';
   const loc = def ? workLocation(eng, def).loc : '';
@@ -87,14 +130,24 @@ function CreateExercise({ onStartHere }: { onStartHere(def: ExerciseDef): void }
   return (
     <div>
       <div className="form-grid">
-        <label>Feeder</label>
-        <select value={feeder} onChange={ev => edit(setFeeder)(ev.target.value)}>{TOPO.feederIds.map(f => <option key={f}>{f}</option>)}</select>
-        <label>Section to isolate</label>
-        <select value={sec?.key} onChange={ev => edit(setSecKey)(ev.target.value)}>{fsecs.map(s => <option key={s.key} value={s.key}>{s.label.slice(s.feeder.length + 2)}</option>)}</select>
+        <label>Job</label>
+        <select value={kind} onChange={ev => { const k = ev.target.value as 'isolate' | 'bypass'; edit(setKind)(k); setWork(k === 'bypass' ? BYPASS_WORK[eq.type as 'reg' | 'recloser'][0] : WORK_TYPES[0]); }}>
+          <option value="isolate">Isolate a section of line for a crew</option>
+          <option value="bypass">Take a regulator or recloser out of service (no outage)</option>
+        </select>
+        {kind === 'isolate' ? <>
+          <label>Feeder</label>
+          <select value={feeder} onChange={ev => edit(setFeeder)(ev.target.value)}>{TOPO.feederIds.map(f => <option key={f}>{f}</option>)}</select>
+          <label>Section to isolate</label>
+          <select value={sec?.key} onChange={ev => edit(setSecKey)(ev.target.value)}>{fsecs.map(s => <option key={s.key} value={s.key}>{s.label.slice(s.feeder.length + 2)}</option>)}</select>
+        </> : <>
+          <label>Equipment</label>
+          <select value={eq.id} onChange={ev => { const x = equipment.find(q => q.id === ev.target.value)!; edit(setEquip)(x.id); setWork(BYPASS_WORK[x.type as 'reg' | 'recloser'][0]); }}>{equipment.map(x => <option key={x.id} value={x.id}>{x.label}</option>)}</select>
+        </>}
         <label>Work</label>
         <div style={{ display: 'flex', gap: 6 }}>
-          <select value={WORK_TYPES.includes(work) ? work : '__c'} onChange={ev => edit(setWork)(ev.target.value === '__c' ? '' : ev.target.value)}>{WORK_TYPES.map(w => <option key={w}>{w}</option>)}<option value="__c">Custom…</option></select>
-          {!WORK_TYPES.includes(work) && <input placeholder="Describe the work" value={work} onChange={ev => edit(setWork)(ev.target.value)} style={{ flex: 1 }} />}
+          <select value={workList.includes(work) ? work : '__c'} onChange={ev => edit(setWork)(ev.target.value === '__c' ? '' : ev.target.value)}>{workList.map(w => <option key={w}>{w}</option>)}<option value="__c">Custom…</option></select>
+          {!workList.includes(work) && <input placeholder="Describe the work" value={work} onChange={ev => edit(setWork)(ev.target.value)} style={{ flex: 1 }} />}
         </div>
         <label>Crew on site</label>
         <select value={truck} onChange={ev => edit(setTruck)(ev.target.value)}>
@@ -102,25 +155,26 @@ function CreateExercise({ onStartHere }: { onStartHere(def: ExerciseDef): void }
         </select>
         <label>Time under clearance</label>
         <select value={minutes} onChange={ev => edit(setMinutes)(Number(ev.target.value))}>{[10, 15, 20, 30, 45].map(m => <option key={m} value={m}>{m} min (sim time)</option>)}</select>
+        <RulesEditor rules={rules} setRules={r => { setGenDef(null); setRules(r); }} preset={preset} setPreset={setPreset} />
         <label>Coach mode</label>
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={coach} onChange={ev => edit(setCoach)(ev.target.checked)} /> Show the check to the student when they submit (off = only you see it)</label>
         <label>Note to student</label>
         <input placeholder="Optional" value={notes} onChange={ev => edit(setNotes)(ev.target.value)} />
       </div>
       <div style={{ display: 'flex', gap: 6, margin: '8px 0' }}>
-        <button className="btn" onClick={() => setGenDef({ ...generateExercise(TOPO), coach, minutes, notes: notes.trim() || undefined })}>Random section</button>
-        {genDef && <span className="dim" style={{ alignSelf: 'center' }}>Random: {genDef.work} on {genDef.feeder} (crew {genDef.truck}). Change any field above to go back to your own pick.</span>}
+        <button className="btn" onClick={() => setGenDef({ ...generateExercise(TOPO, Math.random, rules), coach, minutes, notes: notes.trim() || undefined, rulesName })}>Random job</button>
+        {genDef && <span className="dim" style={{ alignSelf: 'center' }}>Random: {genDef.work} — {genDef.kind === 'bypass' ? genDef.workEl : genDef.feeder} (crew {genDef.truck}). Change any field above to go back to your own pick.</span>}
       </div>
       {def && <>
-        <div className="sec-t">Exercise {def.id}</div>
-        <div style={{ fontSize: 12 }}>{def.work} on <b>{def.feeder}</b>, crew {def.truck} on site at {loc}. Section: {sections.find(s => s.key === [...sectionAround(TOPO, def.workEl).bounds].sort().join('|'))?.label.slice(def.feeder.length + 2) ?? ''}</div>
+        <div className="sec-t">Exercise {def.id} · {def.rulesName ?? 'Standard'} rules</div>
+        <div style={{ fontSize: 12 }}>{def.work} — {def.kind === 'bypass' ? <>take <b>{def.workEl}</b> out of service on {def.feeder} with no outage</> : <>on <b>{def.feeder}</b>, section {sections.find(s => s.key === [...sectionAround(TOPO, def.workEl).bounds].sort().join('|'))?.label.slice(def.feeder.length + 2) ?? ''}</>}. Crew {def.truck} on site at {loc}.</div>
         <div className="form-row" style={{ marginTop: 6 }}>
           <input readOnly value={link} style={{ flex: 1 }} className="mono" onFocus={ev => ev.target.select()} />
           <button className="btn pri" onClick={async () => { try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* select manually */ } }}>{copied ? 'Copied' : 'Copy link'}</button>
           <button className="btn" onClick={() => onStartHere(def)}>Start it here</button>
         </div>
         <div className="dim" style={{ fontSize: 11 }}>Text or email this link to the student. When they finish they download a report file and send it to you; open it under "Open a report".</div>
-        <div className="sec-t" style={{ cursor: 'pointer' }} onClick={() => setShowKey(!showKey)}>{showKey ? '▾' : '▸'} Answer key (one correct order)</div>
+        <div className="sec-t" style={{ cursor: 'pointer' }} onClick={() => setShowKey(!showKey)}>{showKey ? '▾' : '▸'} Answer key (one correct order under these rules)</div>
         {showKey && ref && refCheck && <><StepsTable steps={ref.steps} holdAfter={ref.holdAfter} /><FindingsList check={refCheck} /></>}
       </>}
     </div>
@@ -142,6 +196,7 @@ export function ReportView({ r }: { r: ExReport }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{r.student} — {r.def.work} on {r.def.feeder}</div>
+          <div className="dim" style={{ fontSize: 11.5 }}>{r.def.kind === 'bypass' ? `Bypass ${r.def.workEl} · ` : ''}{r.def.rulesName ?? 'Standard'} rules ({(Object.keys(RULE_TEXT) as (keyof CompanyRules)[]).map(k => `${RULE_TEXT[k].toLowerCase()}: ${r.rules?.[k] ?? 'warn'}`).join(', ')})</div>
           <div className="dim" style={{ fontSize: 11.5 }}>Exercise {r.def.id} · crew {r.def.truck} at {r.work.loc} · isolation points {[...r.work.bounds, ...r.work.vis].join(', ')} · {r.work.customers} customers in the section</div>
           <div className="dim" style={{ fontSize: 11.5 }}>Started {dt(r.startedWall)} · finished {dt(r.finishedWall)} · {r.simMinutes} min sim time</div>
         </div>
@@ -181,7 +236,7 @@ export function ReportView({ r }: { r: ExReport }) {
               {ord.steps.map((s, i) => (
                 <tr key={i} className={ord.holdAfter === i ? 'holdrow' : ''}>
                   <td className="mono">{i + 1}</td>
-                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{s.action.toUpperCase()} {s.dev}{s.loop ? ' (LOOP)' : ''}<div className="dim">{s.exec === 'SCADA' ? 'SCADA' : `Truck ${s.exec}`} · {s.status}</div></td>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{ACTION_LABEL[s.action]} {s.dev}{s.loop ? ' (LOOP)' : ''}<div className="dim">{s.exec === 'SCADA' ? 'SCADA' : `Truck ${s.exec}`} · {s.status}</div></td>
                   <td style={{ whiteSpace: 'normal' }}>{(s.log ?? []).map((l, j) => <div key={j} className={l.ok === false ? 'c-red' : ''}><span className="dim mono">{fmtT(r, l.t)}</span> {l.ev}</div>)}{!s.log?.length && <span className="dim">Not run</span>}</td>
                 </tr>
               ))}
@@ -193,7 +248,7 @@ export function ReportView({ r }: { r: ExReport }) {
       <div className="sec-t">Every device operation, in order (replayed and checked)</div>
       <table className="grid">
         <thead><tr><th>Time</th><th>Operation</th><th>By</th><th>Order</th></tr></thead>
-        <tbody>{r.ops.map((x, i) => <tr key={i} className={r.executedCheck.isolatedAt === i ? 'holdrow' : ''}><td className="mono">{fmtT(r, x.t)}</td><td className="mono">{x.action.toUpperCase()} {x.dev}</td><td>{x.by === 'SCADA' ? 'SCADA' : `Truck ${x.by}`}</td><td className="mono dim">{x.order ?? 'outside an order'}</td></tr>)}</tbody>
+        <tbody>{r.ops.map((x, i) => <tr key={i} className={r.executedCheck.isolatedAt === i ? 'holdrow' : ''}><td className="mono">{fmtT(r, x.t)}</td><td className="mono">{ACTION_LABEL[x.action]} {x.dev}</td><td>{x.by === 'SCADA' ? 'SCADA' : `Truck ${x.by}`}</td><td className="mono dim">{x.order ?? 'outside an order'}</td></tr>)}</tbody>
       </table>
       <FindingsList check={r.executedCheck} hidePass />
 

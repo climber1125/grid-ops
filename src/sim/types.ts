@@ -5,7 +5,9 @@
 
 export type LatLng = [number, number];
 
-export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr' | 'disc';
+export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr' | 'disc' | 'reg' | 'cap';
+/** Switching-order actions. open/close operate the device; the rest change a control. */
+export type SwAction = 'open' | 'close' | 'manual' | 'auto' | 'neutral' | 'nr-on' | 'nr-off';
 export type LoadClass = 'res' | 'apt' | 'com' | 'ind' | 'critical';
 
 export interface NetNode { id: string; pos: LatLng; }
@@ -71,6 +73,10 @@ export interface Topology {
 
 export interface DevState {
   open: boolean; lockout: boolean; tags: string[]; comm: boolean; ops: number; nonReclose?: boolean;
+  /** Regulator tap (-16..+16, 0 = neutral) and regulator / cap bank control mode. */
+  tap?: number; ctl?: 'auto' | 'manual';
+  /** Cap bank: last time the bank was connected and energized, and when it went dead. */
+  capLive?: number; capDead?: number | null;
   tripFault?: string; lastT?: number;
 }
 
@@ -147,13 +153,15 @@ export interface LogEntry { id: number; t: number; cat: 'SCADA' | 'OMS' | 'DISPA
 export type ReqType = 'close' | 'clearance' | 'release' | 'pressure' | 'hotline';
 export interface Request {
   id: string; t: number; type: ReqType; truck: string; inc?: string; dev?: string; devs?: string[];
+  /** Explicit section (for equipment bypass clearances) instead of the section around dev. */
+  nodes?: string[];
   text: string; status: 'Pending' | 'Approved' | 'Denied' | 'Done';
 }
 
 export type StepStatus = 'Pending' | 'Issued' | 'RepeatBack' | 'InProgress' | 'Done' | 'Failed';
 export interface SwStep {
-  dev: string; action: 'open' | 'close'; exec: string; // 'SCADA' or truck id
-  loop: boolean; status: StepStatus; rbDev?: string; rbAction?: 'open' | 'close'; note?: string; doneT?: number;
+  dev: string; action: SwAction; exec: string; // 'SCADA' or truck id
+  loop: boolean; status: StepStatus; rbDev?: string; rbAction?: SwAction; note?: string; doneT?: number;
   injectError?: boolean; injectErrorDev?: string;
   /** Execution log for instructor review: issued, repeat-back, confirm/reject, operated. */
   log?: { t: number; ev: string; ok?: boolean }[];

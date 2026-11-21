@@ -8,7 +8,7 @@ import type { Cause, DevEl, LatLng } from './types';
 import { SERVICE_CENTER, nearestName } from './roads';
 import { sectionAround } from './network';
 import { offset, dist } from './geo';
-import { generateExercise, workSection, workLocation, type ExState } from './exercise';
+import { generateExercise, workSection, workLocation, exerciseNormal, type ExState } from './exercise';
 import type { LineEl } from './types';
 
 export interface ScenarioDef {
@@ -33,6 +33,7 @@ function startOnWorkOrder(e: Engine, truck: string, dur = 300) {
 function allNormal(e: Engine): boolean {
   for (const id of e.T.switchable) {
     const d = e.T.els[id] as DevEl, st = e.s.dev[id];
+    if (d.type === 'cap') continue; // cap banks switch on their own controllers
     if (st.open !== d.normalOpen || st.lockout) return false;
   }
   return true;
@@ -654,7 +655,11 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
       tr.task = { kind: 'planned', id: def.id }; tr.status = 'Standing By';
       tr.waitIso = { inc: '', devs: ws.points, purpose: def.work };
       (tr.waitIso as any).el = def.workEl;
-      e.log('OMS', 'info', `Planned outage notice sent to ${ws.customers} customers on ${def.feeder} for ${def.work.toLowerCase()} (${def.id}).`);
+      if (def.kind === 'bypass') { (tr.waitIso as any).nodes = ws.nodes; (tr.waitIso as any).closed = ws.mustClose; }
+      if (def.kind === 'bypass') e.log('OMS', 'info', `Planned maintenance: ${def.workEl} on ${def.feeder} to be bypassed with no customer outage (${def.id}).`);
+      else e.log('OMS', 'info', `Planned outage notice sent to ${ws.customers} customers on ${def.feeder} for ${def.work.toLowerCase()} (${def.id}).`);
+      // Starting device state, for replaying what the student did.
+      (ex as any).startDev = JSON.parse(JSON.stringify(e.s.dev));
       e.say([
         [def.truck, `Sparks Control, ${def.truck}. On location ${loc.loc} for the planned job, ${def.work.toLowerCase()} on ${def.feeder}. Ready for switching when you have the order written.`],
         ['C', `Copy ${def.truck}, stand by for the switching order.`],
@@ -687,7 +692,7 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
           e.say([['C', `Truck ${def.truck}, Sparks Control. Copy you're clear of the planned job. Thank you.`], [def.truck, `${def.truck} copies, clear.`]], { unit: def.truck, start: 4 });
           e.freeTruck(tr);
         }
-        if (allNormal(e) && !Object.values(e.s.orders).some(o => o.status === 'Active')) {
+        if (exerciseNormal(e) && !Object.values(e.s.orders).some(o => o.status === 'Active')) {
           e.setObj('x6', 'pass');
           if (!F.missedRepeat) e.setObj('x5', 'pass');
           if (!Object.keys(ex.unplanned).length) e.setObj('x4', 'pass');

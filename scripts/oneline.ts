@@ -34,6 +34,16 @@ for (const fid of T.feederIds) {
         svg += `<rect x="${X - 31}" y="${Y - 5}" width="10" height="10" fill="#fff" stroke="#06c"/><rect x="${X + 21}" y="${Y - 5}" width="10" height="10" fill="#fff" stroke="#06c"/>`;
         svg += `<rect x="${X - 10}" y="${Y - 10}" width="20" height="20" fill="#06c"/><text x="${X}" y="${Y + 4}" font-size="9" fill="#fff" text-anchor="middle" font-weight="700">R</text>`;
         svg += `<text x="${X}" y="${Y + 26}" font-size="10.5" text-anchor="middle" font-weight="700">${d.id}</text><text x="${X}" y="${Y + 38}" font-size="8.5" text-anchor="middle" fill="#555">D-${n}A · D-${n}B</text>`;
+      } else if (d.type === 'reg') {
+        const n = d.id.slice(3);
+        svg += `<path d="M${X - 34} ${Y} v-30 h68 v30" fill="none" stroke="#a40" stroke-width="1.5" stroke-dasharray="5 3"/><text x="${X}" y="${Y - 34}" font-size="9" text-anchor="middle" fill="#a40">BP-${n} (N.O.)</text>`;
+        svg += `<rect x="${X - 31}" y="${Y - 5}" width="10" height="10" fill="#fff" stroke="#a40"/><rect x="${X + 21}" y="${Y - 5}" width="10" height="10" fill="#fff" stroke="#a40"/>`;
+        svg += `<circle cx="${X}" cy="${Y}" r="11" fill="#fff" stroke="#a40" stroke-width="2.5"/><text x="${X}" y="${Y + 4}" font-size="9" text-anchor="middle" fill="#a40" font-weight="700">VR</text>`;
+        svg += `<text x="${X}" y="${Y + 26}" font-size="10.5" text-anchor="middle" font-weight="700">${d.id}</text><text x="${X}" y="${Y + 38}" font-size="8.5" text-anchor="middle" fill="#555">D-${n}S · D-${n}L · 32-step</text>`;
+      } else if (d.type === 'cap') {
+        svg += `<line x1="${X}" y1="${Y}" x2="${X}" y2="${Y + 78}" stroke="#063" stroke-width="1.5"/><rect x="${X - 6}" y="${Y + 30}" width="12" height="10" fill="#fff" stroke="#063"/>`;
+        svg += `<line x1="${X - 12}" y1="${Y + 78}" x2="${X + 12}" y2="${Y + 78}" stroke="#063" stroke-width="2.5"/><line x1="${X - 12}" y1="${Y + 85}" x2="${X + 12}" y2="${Y + 85}" stroke="#063" stroke-width="2.5"/>`;
+        svg += `<text x="${X}" y="${Y + 100}" font-size="10" text-anchor="middle" font-weight="700" fill="#063">${d.id}</text><text x="${X}" y="${Y + 111}" font-size="8.5" text-anchor="middle" fill="#063">600 kVAR switched${d.scada ? ' · SCADA' : ''}</text>`;
       } else if (d.type === 'tie') {
         const other = T.feederIds.find(o => o !== fid && T.feeders[o].ties.includes(d.id));
         svg += `<line x1="${X}" y1="${Y}" x2="${X}" y2="${Y + 118}" stroke="#111" stroke-width="2" stroke-dasharray="4 3"/><circle cx="${X}" cy="${Y + 125}" r="7" fill="#fff" stroke="#0a0" stroke-width="2.5"/>`;
@@ -66,7 +76,7 @@ table { border-collapse: collapse; width: 100%; font-size: 10.5px; page-break-be
 </style></head><body>
 <h1>Sparks Municipal Electric — Distribution One-Line (DRAFT for instructor review)</h1>
 <div class="sub">GRID OPS training system · fictional system · 3 substations, 6 feeders, 12.47 kV · Generated ${new Date().toISOString().slice(0, 10)} · Mark up anything that isn't standard practice.</div>
-<div class="legend"><b>■ CB</b> feeder breaker + getaway disconnect D-xxxxL <b style="color:#06c">■ R</b> recloser with 3-switch bypass (D-A source disc, D-B load disc, BP bypass N.O.) <b>●</b> GOAB sectionalizing switch (load-break) <b style="color:#070">○</b> N.O. tie switch (load-break) <b>▯</b> lateral tap fuse (tx/customers) <b style="color:#a00">★</b> critical customer</div>
+<div class="legend"><b>■ CB</b> feeder breaker + getaway disconnect D-xxxxL <b style="color:#06c">■ R</b> recloser with 3-switch bypass (D-A source disc, D-B load disc, BP bypass N.O.) <b>●</b> GOAB sectionalizing switch (load-break) <b style="color:#070">○</b> N.O. tie switch (load-break) <b>▯</b> lateral tap fuse (tx/customers) <b style="color:#a40">◯ VR</b> voltage regulator bank with bypass (D-S source, D-L load, BP N.O.) <b style="color:#063">=</b> switched capacitor bank <b style="color:#a00">★</b> critical customer</div>
 ${pages}
 <table><thead><tr><th>Device</th><th>Feeder</th><th>Mile</th><th>Equipment</th><th>Normal</th><th>Load-break</th><th>SCADA</th><th>Cust. downstream</th><th>Location</th><th>Markup</th></tr></thead><tbody>${tbl}</tbody></table>
 <p style="font-size:11px;color:#555">Not shown individually: ${Object.keys(T.laterals).length} lateral tap fuses and ${T.loadIds.length} transformers. Fuses are not used in switching orders; crews refuse them directly.</p>

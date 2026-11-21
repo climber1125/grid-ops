@@ -6,7 +6,7 @@
 // run is deterministic for a given seed and can be saved/restored.
 // ─────────────────────────────────────────────────────────────
 import type {
-  SimState, DevEl, Fault, Cause, Truck, Incident, Call, Request, SwitchingOrder, SwStep,
+  SimState, DevEl, Fault, Cause, Truck, Incident, Call, Request, SwitchingOrder, SwStep, SwAction,
   LatLng, FeederReading, QItem, LogEntry, Clearance, WorkOrder, CrewStatus, LineEl,
 } from './types';
 import { TOPO } from './topology';
@@ -15,6 +15,7 @@ import { mulberry } from './rng';
 import { dist, bearing, lerp } from './geo';
 import { route, nearestName, SERVICE_CENTER } from './roads';
 import { checkOrder, type ExerciseDef, type ExState } from './exercise';
+import { stepPhrase, ACTION_LABEL } from './radio';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
 import { parseRadio } from './voice';
@@ -81,6 +82,8 @@ export class Engine {
   private listeners = new Set<() => void>();
   private lastPeriodic = 0;
   private lastReadings = -99;
+  /** Last control evaluation time per regulator / cap bank (not saved). */
+  private regT = new Map<string, number>();
   private prevLoadEn = new Set<string>();
   private closeOntoTrips: string[] = [];
 
@@ -96,7 +99,12 @@ export class Engine {
   static create(scenarioId: string, seed: number, opts: { exercise?: ExerciseDef; student?: string } = {}): Engine {
     const T = TOPO;
     const dev: SimState['dev'] = {};
-    for (const id of T.devIds) dev[id] = { open: (T.els[id] as DevEl).normalOpen, lockout: false, tags: [], comm: true, ops: 0 };
+    for (const id of T.devIds) {
+      dev[id] = { open: (T.els[id] as DevEl).normalOpen, lockout: false, tags: [], comm: true, ops: 0 };
+      const ty = (T.els[id] as DevEl).type;
+      if (ty === 'reg') { dev[id].ctl = 'auto'; dev[id].tap = 6; }
+      if (ty === 'cap') { dev[id].ctl = 'auto'; dev[id].capDead = null; }
+    }
     const s: SimState = {
       version: 2, seed, scenario: scenarioId, t: 0, startEpoch: START_EPOCH, speed: 1, paused: false,
       rng: (seed * 2654435761) >>> 0 || 1, seq: 0, queue: [], dev, faults: {}, loadOutSince: {}, planned: {},
@@ -413,7 +421,12 @@ export class Engine {
       }
     }
     const lbIssue = this.loadBreakIssue(id, action);
+    const regIssue = this.regBypassIssue(id, action);
     st.open = wantOpen; st.ops++; st.lastT = this.s.t;
+    if (regIssue) {
+      this.violation('regbypass', regIssue);
+      if (ctx.by !== 'SCADA' && ctx.by !== 'model') this.say([[ctx.by, `Sparks Control, ${ctx.by}! The regulator just let out a loud hum and the bypass is arcing. We're clear of it. ${regIssue}.`], ['C', `Copy ${ctx.by}, stand clear.`]], { unit: ctx.by, kind: 'switching' });
+    }
     const ex = this.s.scen.flags.ex as ExState | undefined;
     if (ex && !ex.finished && ctx.by !== 'model') ex.ops.push({ t: this.s.t, dev: id, action, by: ctx.by, order: ctx.order });
     if (lbIssue) {
@@ -457,7 +470,7 @@ export class Engine {
       if (lose > 0) return { severe: true, text: `Opened non-load-break ${w} ${id} under load (${lose} customers interrupted)`, short: 'It was carrying load.' };
       const bothLive = after.en.has(d.from) && after.en.has(d.to);
       if (bothLive && !local) return { severe: true, text: `Broke a feeder parallel with non-load-break ${w} ${id}`, short: 'It was in a parallel.' };
-      if (bothLive && local && d.type === 'disc') {
+      if (bothLive && local && d.type === 'disc' && (this.T.els[d.grp!] as DevEl)?.type === 'recloser') {
         const r = this.T.els[d.grp!] ? this.s.dev[d.grp!] : null;
         if (r && !r.open) return { severe: false, text: `Opened ${id} in parallel with bypass while ${d.grp} was still closed — open the recloser first, then the disconnects`, short: '' };
       }
@@ -484,6 +497,93 @@ export class Engine {
       }
     }
     return false;
+  }
+
+  /** Regulator bypass rules: the bypass may only be made or the regulator reconnected with the regulators on NEUTRAL and the control in MANUAL. */
+  regBypassIssue(id: string, action: 'open' | 'close', devState = this.s.dev): string | null {
+    const d = this.dev(id);
+    if (!d?.grp || action !== 'close') return null;
+    const g = this.T.els[d.grp] as DevEl;
+    if (g?.type !== 'reg') return null;
+    const R = devState[g.id];
+    const bp = `BP-${g.id.slice(3)}`;
+    const trial = { ...devState, [id]: { ...devState[id], open: false } };
+    const bypassMade = !trial[bp].open && !trial[`D-${g.id.slice(3)}S`].open && !trial[`D-${g.id.slice(3)}L`].open;
+    if (!bypassMade) return null;
+    if ((R.tap ?? 0) !== 0) return `Bypassed ${g.id} with the regulators OFF NEUTRAL (tap ${R.tap! > 0 ? R.tap + 'R' : -R.tap! + 'L'}) — heavy circulating current through the bypass`;
+    if (R.ctl !== 'manual') return `Bypassed ${g.id} with the control in AUTO — it can step off neutral while bypassed`;
+    return null;
+  }
+
+  /**
+   * Control actions on a switching step: regulator/cap control to MANUAL or AUTO, regulator to NEUTRAL,
+   * block/restore reclosing. open/close go through operate().
+   */
+  devAction(id: string, action: SwAction, ctx: { by: string; loopOk?: boolean; order?: string }): { ok: boolean; reason?: string } {
+    if (action === 'open' || action === 'close') return this.operate(id, action, ctx);
+    const d = this.dev(id), st = this.s.dev[id];
+    if (!d || !st) return { ok: false, reason: `Unknown device ${id}` };
+    if (ctx.by === 'SCADA' && !d.scada) return { ok: false, reason: `${id} is not SCADA controllable — requires a field crew` };
+    switch (action) {
+      case 'manual': case 'auto':
+        if (d.type !== 'reg' && d.type !== 'cap') return { ok: false, reason: `${id} has no AUTO/MANUAL control` };
+        if (st.ctl === action) return { ok: false, reason: `${id} control is already in ${action.toUpperCase()}` };
+        st.ctl = action; break;
+      case 'neutral':
+        if (d.type !== 'reg') return { ok: false, reason: `${id} is not a regulator` };
+        if (st.ctl !== 'manual') return { ok: false, reason: `${id} control is in AUTO — place it in MANUAL before running to neutral` };
+        st.tap = 0; break;
+      case 'nr-on': case 'nr-off': {
+        if (d.type !== 'breaker' && d.type !== 'recloser') return { ok: false, reason: `${id} has no reclosing` };
+        const on = action === 'nr-on';
+        if (!!st.nonReclose === on) return { ok: false, reason: `Reclosing on ${id} is already ${on ? 'blocked' : 'enabled'}` };
+        st.nonReclose = on; break;
+      }
+    }
+    const ex = this.s.scen.flags.ex as ExState | undefined;
+    if (ex && !ex.finished) ex.ops.push({ t: this.s.t, dev: id, action, by: ctx.by, order: ctx.order });
+    const who = ctx.by === 'SCADA' ? 'SCADA' : `field, Truck ${ctx.by}`;
+    this.soe(`${id} ${ACTION_LABEL[action]} (${who})`, 'info', id);
+    this.log(ctx.by === 'SCADA' ? 'SCADA' : 'DISPATCH', 'info', `${id}: ${ACTION_LABEL[action].toLowerCase()} — ${who}${ctx.order ? ` (${ctx.order})` : ''}`);
+    this.bump();
+    return { ok: true };
+  }
+
+  /** Regulators step in AUTO; cap banks switch in AUTO; both are watched for unsafe conditions. */
+  private regCapMonitor() {
+    const t = this.s.t;
+    for (const id of this.T.devIds) {
+      const d = this.T.els[id] as DevEl, st = this.s.dev[id];
+      if (d.type === 'reg') {
+        const g = d.id.slice(3);
+        const bypassed = !this.s.dev[`BP-${g}`].open && !this.s.dev[`D-${g}S`].open && !this.s.dev[`D-${g}L`].open;
+        if (st.ctl === 'auto' && this.net.en.has(d.from) && t - (this.regT.get(id) ?? -99) >= 30) {
+          this.regT.set(id, t);
+          const pct = this.readings[d.feeder]?.pct ?? 0.5;
+          const want = Math.max(0, Math.min(16, Math.round(pct * 9) + 1));
+          if (want !== st.tap) {
+            st.tap = (st.tap ?? 0) + Math.sign(want - (st.tap ?? 0));
+            if (bypassed) this.violation('regbypass', `${id} stepped to ${st.tap} while bypassed — control was left in AUTO`);
+          }
+        }
+      } else if (d.type === 'cap') {
+        const live = !st.open && this.net.en.has(d.to);
+        if (live) {
+          if (st.capDead != null && t - st.capDead < 300) this.violation('cap5', `${id} re-energized ${Math.round(t - st.capDead)} s after it was de-energized — wait 5 minutes for the bank to discharge`);
+          st.capDead = null; st.capLive = t;
+        } else if (st.capDead == null && st.capLive != null) st.capDead = t;
+        // AUTO: on for the afternoon/evening peak, off otherwise, with the controller's own 5-minute lockout.
+        if (st.ctl === 'auto' && this.net.en.has(d.from) && t - (this.regT.get(id) ?? -99) >= 60) {
+          this.regT.set(id, t);
+          const h = this.hourOfDay(), want = h >= 12 && h < 21;
+          if (want === st.open && (st.capDead == null || t - st.capDead >= 300)) {
+            st.open = !want; st.ops++;
+            this.soe(`${id} ${want ? 'CLOSE' : 'OPEN'} (cap controller AUTO)`, want ? 'close' : 'open', id);
+            this.refresh();
+          }
+        }
+      }
+    }
   }
 
   /** What-if for a device operation (used by select-before-operate dialogs). */
@@ -996,7 +1096,7 @@ export class Engine {
   // ── Clearances ─────────────────────────────────────────────
   private issueClearance(r: Request): string | null {
     const tr = this.truck(r.truck);
-    const sec = sectionAround(this.T, r.dev!);
+    const sec = r.nodes && r.devs ? { nodes: r.nodes, bounds: r.devs } : sectionAround(this.T, r.dev!);
     const notOpen = sec.bounds.filter(b => !this.s.dev[b].open);
     if (notOpen.length) { this.violation('clearance', `Attempted to issue clearance with isolation points not open: ${notOpen.join(', ')}`); return `Isolation points not open: ${notOpen.join(', ')}`; }
     const live = sec.nodes.filter(n => this.net.en.has(n));
@@ -1019,8 +1119,18 @@ export class Engine {
     const fid = r.inc ? this.s.incidents[r.inc]?.faults[0] : undefined;
     const mins = fid ? repairMinutes(this.s.faults[fid].cause, () => this.rand()) : (this.s.scen.flags.plannedMinutes ?? 20);
     if (r.inc) { const inc = this.s.incidents[r.inc]; inc.stage = 'Repair'; inc.status = 'Working'; inc.etr = this.s.t + end + mins * 60 + 900; inc.timeline.push({ t: this.s.t, text: `Clearance ${id} issued to ${r.truck}` }); }
-    const act = this.crewRepair(tr, mins, end, r.inc ? this.s.incidents[r.inc] : undefined);
-    this.schedule(end + act * 60, 'crew', { truck: r.truck, tok: tr.tok, step: 'repairDone' });
+    // Cap banks in the section: the crew waits for them to discharge before grounding.
+    const ns = new Set(sec.nodes);
+    let wait = 0;
+    for (const cid of this.T.devIds) {
+      const cd = this.T.els[cid] as DevEl, cs = this.s.dev[cid];
+      if (cd.type !== 'cap' || !ns.has(cd.from) || cs.capDead == null) continue;
+      wait = Math.max(wait, 300 - (this.s.t - cs.capDead));
+      if (wait > 0) this.say([[r.truck, `Control, ${r.truck}. We've got capacitor bank ${cid} in this section. Waiting the five minutes for it to discharge before we ground.`], ['C', `Copy ${r.truck}.`]], { kind: 'switching', unit: r.truck, start: end + 2 });
+    }
+    wait = Math.max(0, wait);
+    const act = this.crewRepair(tr, mins, end + wait, r.inc ? this.s.incidents[r.inc] : undefined);
+    this.schedule(end + wait + act * 60, 'crew', { truck: r.truck, tok: tr.tok, step: 'repairDone' });
     return null;
   }
 
@@ -1054,7 +1164,7 @@ export class Engine {
     this.bump();
     return o;
   }
-  addStep(oid: string, dev: string, action: 'open' | 'close', exec: string, loop: boolean) {
+  addStep(oid: string, dev: string, action: SwAction, exec: string, loop: boolean) {
     const o = this.s.orders[oid];
     if (!o || o.status === 'Complete' || o.status === 'Cancelled') return 'Order not editable';
     if (!this.dev(dev)) return 'Unknown device';
@@ -1143,10 +1253,10 @@ export class Engine {
     if (!['Pending', 'Failed'].includes(st.status)) return 'Step already in progress';
     const d = this.dev(st.dev);
     if (st.exec === 'SCADA') {
-      const r = this.operate(st.dev, st.action, { by: 'SCADA', loopOk: st.loop, order: oid });
-      if (!r.ok) { st.status = 'Failed'; st.note = r.reason; this.stepLog(st, `SCADA ${st.action} ${st.dev} failed: ${r.reason}`, false); this.log('SCADA', 'warn', `${oid} step ${o.cur + 1} failed: ${r.reason}`); this.bump(); return r.reason!; }
+      const r = this.devAction(st.dev, st.action, { by: 'SCADA', loopOk: st.loop, order: oid });
+      if (!r.ok) { st.status = 'Failed'; st.note = r.reason; this.stepLog(st, `SCADA ${ACTION_LABEL[st.action]} ${st.dev} failed: ${r.reason}`, false); this.log('SCADA', 'warn', `${oid} step ${o.cur + 1} failed: ${r.reason}`); this.bump(); return r.reason!; }
       st.status = 'Done'; st.doneT = this.s.t;
-      this.stepLog(st, `SCADA ${st.action.toUpperCase()} ${st.dev} — done`, true);
+      this.stepLog(st, `SCADA ${ACTION_LABEL[st.action]} ${st.dev} — done`, true);
       this.decision(`${oid} step ${o.cur + 1}: SCADA ${st.action} ${st.dev}`);
       this.advanceOrder(o);
       this.bump(); return null;
@@ -1160,11 +1270,11 @@ export class Engine {
     tr.sw = { order: oid, idx: o.cur }; tr.tok++; tr.route = null; tr.status = 'Switching';
     st.status = 'Issued'; st.note = undefined;
     this.stepLog(st, `Issued to Truck ${tr.id}`);
-    const act = st.action === 'open' ? 'Open' : 'Close';
+    const act = ACTION_LABEL[st.action];
     const end = this.voiced ? 2.5 : this.say([
       ['C', `Truck ${tr.id}, Sparks Control, switching.`],
       [tr.id, `${tr.id}, go ahead with switching.`],
-      ['C', `Switching order ${oid}, step ${o.cur + 1}: ${act} ${devWord(d)} ${st.dev}${st.loop ? ', loop close,' : ''} at ${d.loc}. Repeat.`],
+      ['C', `Switching order ${oid}, step ${o.cur + 1}: ${stepPhrase(st.action, d, st.dev)}${st.loop ? ', loop close,' : ''} at ${d.loc}. Repeat.`],
     ], { kind: 'switching', unit: tr.id });
     this.schedule(end + 1, 'sw', { order: oid, idx: o.cur, phase: 'repeat' });
     this.decision(`Issued ${oid} step ${o.cur + 1} to ${tr.id}: ${act} ${st.dev}`);
@@ -1188,7 +1298,7 @@ export class Engine {
       if (wrong) { this.decision(`Caught incorrect repeat-back from ${tr.id} (${st.rbAction} ${st.rbDev})`, true); this.s.scen.flags.caughtRepeat = true; }
       else { this.decision(`Rejected a correct repeat-back from ${tr.id}`, false); this.coach('That repeat-back was actually correct', 'Compare the crew repeat-back to your step: same device, same action. If they match, confirm with "That is correct, perform." (or say "correct").'); }
       const d = this.dev(st.dev);
-      const end = this.say([['C', `Negative, ${tr.id}. Step ${o.cur + 1}: ${st.action === 'open' ? 'Open' : 'Close'} ${devWord(d)} ${st.dev} at ${d.loc}. Repeat.`]], { kind: 'switching', unit: tr.id });
+      const end = this.say([['C', `Negative, ${tr.id}. Step ${o.cur + 1}: ${stepPhrase(st.action, d, st.dev)} at ${d.loc}. Repeat.`]], { kind: 'switching', unit: tr.id });
       st.status = 'Issued'; st.injectError = false;
       this.schedule(end + 1, 'sw', { order: oid, idx: o.cur, phase: 'repeat' });
       this.bump(); return null;
@@ -1230,17 +1340,19 @@ export class Engine {
         const sib = this.T.feeders[d.feeder].sch.filter(x => x.kind === 'dev' && x.id !== st.dev && this.dev(x.id).type === d.type).map(x => x.id)
           .sort((a, b) => dist(this.dev(a).pos, d.pos) - dist(this.dev(b).pos, d.pos)).slice(0, 3);
         const flipOnly = !st.injectErrorDev && (this.rand() < 0.35 || !sib.length);
-        rbDev = st.injectErrorDev ?? (flipOnly ? st.dev : this.pick(sib));
-        if (rbDev === st.dev) rbAction = st.action === 'open' ? 'close' : 'open';
+        const FLIP: Record<SwAction, SwAction> = { open: 'close', close: 'open', manual: 'auto', auto: 'manual', neutral: 'neutral', 'nr-on': 'nr-off', 'nr-off': 'nr-on' };
+        const oc = st.action === 'open' || st.action === 'close';
+        rbDev = st.injectErrorDev ?? (flipOnly || !oc ? st.dev : this.pick(sib));
+        if (rbDev === st.dev) rbAction = FLIP[st.action];
       }
       st.rbDev = rbDev; st.rbAction = rbAction; st.status = 'RepeatBack';
-      this.stepLog(st, `${tr.id} repeated: ${rbAction.toUpperCase()} ${rbDev}${rbDev !== st.dev || rbAction !== st.action ? ' (WRONG)' : ''}`, rbDev === st.dev && rbAction === st.action);
+      this.stepLog(st, `${tr.id} repeated: ${ACTION_LABEL[rbAction]} ${rbDev}${rbDev !== st.dev || rbAction !== st.action ? ' (WRONG)' : ''}`, rbDev === st.dev && rbAction === st.action);
       const rd = this.dev(rbDev);
-      this.say([[tr.id, `${tr.id} repeating, switching order ${o.id} step ${o.cur + 1}: ${rbAction === 'open' ? 'open' : 'close'} ${devWord(rd)} ${rbDev} at ${rd.loc}.`]], { kind: 'switching', unit: tr.id });
+      this.say([[tr.id, `${tr.id} repeating, switching order ${o.id} step ${o.cur + 1}: ${((p: string) => p[0].toLowerCase() + p.slice(1))(stepPhrase(rbAction, rd, rbDev))} at ${rd.loc}.`]], { kind: 'switching', unit: tr.id });
       this.log('DISPATCH', 'warn', `${tr.id} repeat-back on ${o.id} step ${o.cur + 1} — confirm or correct`);
     } else if (data.phase === 'operate') {
       if (st.status !== 'InProgress') return;
-      const r = this.operate(st.rbDev!, st.rbAction!, { by: tr.id, loopOk: st.loop && st.rbDev === st.dev, order: o.id });
+      const r = this.devAction(st.rbDev!, st.rbAction!, { by: tr.id, loopOk: st.loop && st.rbDev === st.dev, order: o.id });
       if (!r.ok) {
         st.status = 'Failed'; st.note = r.reason;
         this.stepLog(st, `${tr.id} unable to ${st.rbAction} ${st.rbDev}: ${r.reason}`, false);
@@ -1254,7 +1366,7 @@ export class Engine {
         ['C', `Copy ${tr.id}, ${st.rbDev} ${state} at ${this.hhmm()}.`],
       ], { kind: 'switching', unit: tr.id });
       st.status = 'Done'; st.doneT = this.s.t;
-      this.stepLog(st, `${tr.id} operated ${st.rbAction!.toUpperCase()} ${st.rbDev} — reported complete`, st.rbDev === st.dev && st.rbAction === st.action);
+      this.stepLog(st, `${tr.id} completed ${ACTION_LABEL[st.rbAction!]} ${st.rbDev}`, st.rbDev === st.dev && st.rbAction === st.action);
       tr.sw = null; this.restoreTruckStatus(tr);
       this.advanceOrder(o);
     }
@@ -1649,6 +1761,7 @@ export class Engine {
     this.s.metrics.cmi += out * dt / 60;
     for (const inc of Object.values(this.s.incidents)) if (inc.custOut && inc.status !== 'Closed' && inc.status !== 'Restored') inc.cmi = (inc.cmi ?? 0) + inc.custOut * dt / 60;
     if (this.s.t - this.lastReadings >= 2) { this.computeReadings(); this.lastReadings = this.s.t; }
+    this.regCapMonitor();
     for (const inc of this.openIncidents()) this.updateIncident(inc);
     // auto-assist dispatch
     if (this.s.autoAssist) {
@@ -1666,12 +1779,13 @@ export class Engine {
       if (!tr.waitIso || tr.clearance || !tr.comm) continue;
       const w = tr.waitIso as any;
       if (!w.devs.every((x: string) => this.s.dev[x].open)) continue;
-      const sec = sectionAround(this.T, w.el);
+      if (w.closed && !w.closed.every((x: string) => !this.s.dev[x].open)) continue;
+      const sec = w.nodes ? { nodes: w.nodes as string[], bounds: w.devs as string[] } : sectionAround(this.T, w.el);
       if (sec.nodes.some(n => this.net.en.has(n))) continue;
       if (this.s.requests.some(r => r.type === 'clearance' && r.truck === tr.id && r.status === 'Pending')) continue;
       const pts = sec.bounds.join(', ');
       this.say([[tr.id, `Sparks Control, ${tr.id}. We show ${pts} open. Requesting a clearance on the section bounded by ${pts} for ${w.purpose.toLowerCase()}.`]], { kind: 'switching', unit: tr.id });
-      this.request('clearance', tr.id, `Clearance on section bounded by ${pts} — ${w.purpose}`, { dev: w.el, devs: sec.bounds, inc: w.inc || undefined });
+      this.request('clearance', tr.id, `Clearance on section bounded by ${pts} — ${w.purpose}`, { dev: w.el, devs: sec.bounds, inc: w.inc || undefined, nodes: w.nodes });
       tr.waitIso = null;
       if (w.inc) { const inc = this.s.incidents[w.inc]; if (inc) inc.timeline.push({ t: this.s.t, text: `Isolation complete — ${tr.id} requesting clearance` }); }
     }

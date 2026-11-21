@@ -9,7 +9,7 @@ import { RNG } from './rng';
 import { nearestName, zoneAt } from './roads';
 import { solve } from './network';
 
-interface DevSpec { f: number; type: 'recloser' | 'switch'; id: string; scada: boolean; }
+interface DevSpec { f: number; type: 'recloser' | 'switch' | 'regulator' | 'cap'; id: string; scada: boolean; }
 interface CritSpec { f: number; side: 1 | -1; name: string; cls: LoadClass; kw: number; cust: number; }
 interface FeederSpec { id: string; sub: string; color: string; ratingA: number; path: LatLng[]; devs: DevSpec[]; crit: CritSpec[]; }
 interface TieSpec { id: string; from: string; to: string; toPos: LatLng; path: LatLng[]; scada: boolean; }
@@ -37,6 +37,7 @@ const FEEDERS: FeederSpec[] = [
     devs: [
       { f: 0.22, type: 'switch', id: 'S-1222', scada: false },
       { f: 0.40, type: 'recloser', id: 'R-1225', scada: true },
+      { f: 0.55, type: 'cap', id: 'CAP-1224', scada: true },
       { f: 0.68, type: 'switch', id: 'S-1226', scada: true },
       { f: 0.92, type: 'switch', id: 'S-1228', scada: false },
     ],
@@ -48,6 +49,7 @@ const FEEDERS: FeederSpec[] = [
     devs: [
       { f: 0.14, type: 'switch', id: 'S-2112', scada: false },
       { f: 0.38, type: 'switch', id: 'S-2114', scada: false },
+      { f: 0.50, type: 'cap', id: 'CAP-2115', scada: false },
       { f: 0.62, type: 'switch', id: 'S-2116', scada: true },
       { f: 0.84, type: 'recloser', id: 'R-2118', scada: true },
     ],
@@ -71,6 +73,7 @@ const FEEDERS: FeederSpec[] = [
       { f: 0.20, type: 'switch', id: 'S-3112', scada: false },
       { f: 0.40, type: 'recloser', id: 'R-3115', scada: true },
       { f: 0.64, type: 'switch', id: 'S-3116', scada: false },
+      { f: 0.75, type: 'regulator', id: 'VR-3117', scada: false },
       { f: 0.86, type: 'switch', id: 'S-3118', scada: true },
     ],
     crit: [{ f: 0.55, side: 1, name: 'NTSU CENTRAL UTILITY PLANT', cls: 'com', kw: 850, cust: 1 }],
@@ -144,6 +147,8 @@ export function buildTopology(): Topology {
     fuse: ['Lateral tap fuse (cutout), 65K', false],
     xfmr: ['Distribution transformer with fused cutout', false],
     disc: ['Single-phase disconnect (solid blade), NON-load-break', false],
+    reg: ['Three single-phase step voltage regulators, 32-step (±10%), 328 A, with controls', true],
+    cap: ['600 kVAR switched capacitor bank — vacuum switches, AUTO/MANUAL controller', true],
   };
   const mkDev = (id: string, from: string, to: string, feeder: string, type: DevEl['type'], scada: boolean, normalOpen: boolean, pos: LatLng, extra?: Partial<DevEl>) => {
     const [equip, lb] = EQUIP[type] ?? ['', true];
@@ -227,7 +232,25 @@ export function buildTopology(): Topology {
       const here = T.nodes[cur].pos;
       const [de, dn] = dirAt(fs.path, cum, Math.min(p.d + 1, L));
       if (p.kind === 'vertex') info.vertNodes.push({ pos: here, node: cur });
-      else if (p.kind === 'dev' && p.ref.type === 'recloser') {
+      else if (p.kind === 'dev' && p.ref.type === 'cap') {
+        // Shunt capacitor bank on a short tap off the main line.
+        const side = p.ref.id.endsWith('4') ? 1 : -1;
+        const cp = offset(here, -dn * 24 * side, de * 24 * side);
+        const cn = mkNode(cp);
+        mkDev(p.ref.id, cur, cn, fs.id, 'cap', p.ref.scada, false, cp);
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: cur });
+      } else if (p.kind === 'dev' && p.ref.type === 'regulator') {
+        // Regulator bank with the standard bypass: source disc, regulators, load disc, bypass (normally open).
+        const n = p.ref.id.slice(3), grp = p.ref.id;
+        const at = (m: number) => offset(here, de * m, dn * m);
+        const a = mkNode(at(-6)), b = mkNode(at(6)), out = mkNode(at(12));
+        mkDev(`D-${n}S`, cur, a, fs.id, 'disc', false, false, at(-9), { grp, equip: 'Regulator SOURCE disconnect (solid blade), NON-load-break' });
+        mkDev(p.ref.id, a, b, fs.id, 'reg', p.ref.scada, false, here, { grp });
+        mkDev(`D-${n}L`, b, out, fs.id, 'disc', false, false, at(9), { grp, equip: 'Regulator LOAD disconnect (solid blade), NON-load-break' });
+        mkDev(`BP-${n}`, cur, out, fs.id, 'switch', false, true, offset(here, -dn * 14, de * 14), { grp, lb: false, equip: 'Regulator bypass switch, NON-load-break, normally open — close ONLY with the regulators on NEUTRAL' });
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: out });
+        cur = out;
+      } else if (p.kind === 'dev' && p.ref.type === 'recloser') {
         // Standard three-switch recloser bypass:
         //   cur ─[D-xxxxA source disc]─ a ─[R-xxxx]─ b ─[D-xxxxB load disc]─ out
         //   cur ──────────────[BP-xxxx bypass, normally open]─────────────── out

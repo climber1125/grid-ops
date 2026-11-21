@@ -1,8 +1,34 @@
 // Radio phrasing helpers. Display text stays exact (device IDs);
 // `speakable` converts IDs/numbers into how an operator would say them.
-import type { Cause, DevEl } from './types';
+import type { Cause, DevEl , SwAction } from './types';
 
 export const CONTROL = 'SPARKS CONTROL';
+
+/** Short label for a switching action. */
+export const ACTION_LABEL: Record<SwAction, string> = {
+  open: 'OPEN', close: 'CLOSE', manual: 'CONTROL TO MANUAL', auto: 'CONTROL TO AUTO', neutral: 'RUN TO NEUTRAL', 'nr-on': 'BLOCK RECLOSING', 'nr-off': 'RESTORE RECLOSING',
+};
+/** Radio wording for a switching step, e.g. "Open switch S-1212" or "Run regulator VR-3117 to neutral". */
+export function stepPhrase(action: SwAction, d: DevEl | undefined, id: string): string {
+  const w = devWord(d);
+  switch (action) {
+    case 'open': return `Open ${w} ${id}`;
+    case 'close': return `Close ${w} ${id}`;
+    case 'manual': return `Place ${w} ${id} control in manual`;
+    case 'auto': return `Return ${w} ${id} control to auto`;
+    case 'neutral': return `Run ${w} ${id} to neutral and verify neutral`;
+    case 'nr-on': return `Block reclosing on ${w} ${id}`;
+    case 'nr-off': return `Restore reclosing on ${w} ${id}`;
+  }
+}
+/** Which actions make sense for a device. */
+export function actionsFor(d: DevEl | undefined): SwAction[] {
+  if (!d) return ['open', 'close'];
+  if (d.type === 'reg') return ['manual', 'neutral', 'auto'];
+  if (d.type === 'cap') return ['open', 'close', 'manual', 'auto'];
+  if (d.type === 'breaker' || d.type === 'recloser') return ['open', 'close', 'nr-on', 'nr-off'];
+  return ['open', 'close'];
+}
 
 export function devWord(d: DevEl | undefined): string {
   if (!d) return 'device';
@@ -11,6 +37,8 @@ export function devWord(d: DevEl | undefined): string {
     case 'recloser': return 'recloser';
     case 'switch': return d.grp ? 'bypass switch' : 'switch';
     case 'disc': return 'disconnect';
+    case 'reg': return 'regulator';
+    case 'cap': return 'capacitor bank';
     case 'tie': return 'tie switch';
     case 'fuse': return 'fuse';
     case 'xfmr': return 'transformer';

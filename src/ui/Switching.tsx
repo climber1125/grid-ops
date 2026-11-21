@@ -3,9 +3,10 @@
 import { useEffect, useState, Fragment } from 'react';
 import { useCtx } from './ctx';
 import type { DevEl } from '../sim/types';
-import { devWord } from '../sim/radio';
+import { devWord, actionsFor, ACTION_LABEL } from '../sim/radio';
+import type { SwAction } from '../sim/types';
 import { SayOr } from './VoiceUi';
-import { FindingsList, download } from './Instructor';
+import { FindingsList, download, ActPill } from './Instructor';
 import { buildReport, workSection, workLocation, type ExState } from '../sim/exercise';
 
 /** Banner for a running switching exercise. */
@@ -34,7 +35,10 @@ function ExerciseBar() {
           : <button className="btn pri" onClick={() => { e.exSetStudent(name); setTimeout(save, 50); }}>Download report</button>}
       </div>
       <div style={{ fontSize: 11.5, marginTop: 3 }}>
-        Isolate the work section ({ws.customers} customers on planned outage). Pick up everyone else you can, mark the hold point, and <b>submit the order for a check</b> before you activate it.
+        {def.kind === 'bypass'
+          ? <>Take <b>{def.workEl}</b> out of service on its bypass with <b>no customer outage</b>, so the crew can work on it under a clearance. Mark the hold point and <b>submit the order for a check</b> before you activate it.</>
+          : <>Isolate the work section ({ws.customers} customers on planned outage). Pick up everyone else you can, mark the hold point, and <b>submit the order for a check</b> before you activate it.</>}
+        <span className="dim"> Company rules: {def.rulesName ?? 'Standard'}.</span>
         {def.notes && <div className="c-amber" style={{ marginTop: 2 }}>Instructor: {def.notes}</div>}
       </div>
       {last && (def.coach
@@ -51,7 +55,7 @@ export function SwitchingView() {
   const [cur, setCur] = useState<string>(orders.find(o => o.status === 'Active' || o.status === 'Draft')?.id ?? orders[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [dev, setDev] = useState('');
-  const [action, setAction] = useState<'open' | 'close'>('open');
+  const [action, setAction] = useState<SwAction>('open');
   const [exec, setExec] = useState('SCADA');
   const [loop, setLoop] = useState(false);
   const o = e.s.orders[cur];
@@ -125,7 +129,7 @@ export function SwitchingView() {
                     <Fragment key={i}>
                       <tr className={`steprow ${i === o.cur && o.status === 'Active' ? 'cur' : ''} ${s.status === 'Done' ? 'done' : ''}`}>
                         <td className="mono">{i + 1}</td>
-                        <td><span className={`state ${s.action === 'open' ? 'open' : 'closed'}`}>{s.action.toUpperCase()}</span></td>
+                        <td><ActPill a={s.action} /></td>
                         <td className="mono"><a style={{ cursor: 'pointer', color: 'var(--cyan)' }} onClick={() => setSel({ kind: 'dev', id: s.dev })}>{s.dev}</a> <span className="dim">{devWord(d)}</span></td>
                         <td>{d.loc}</td>
                         <td className="mono">{s.exec === 'SCADA' ? 'SCADA' : `Truck ${s.exec}`}</td>
@@ -150,8 +154,8 @@ export function SwitchingView() {
                 {step.status === 'RepeatBack' ? (
                   <>
                     <div className="dim">Truck {step.exec} repeat-back for step {o.cur + 1}:</div>
-                    <div className="q">{step.rbAction?.toUpperCase()} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>
-                    <div className="dim" style={{ marginBottom: 6 }}>Order says: <b className="mono">{step.action.toUpperCase()} {step.dev}</b>. Compare carefully before confirming.</div>
+                    <div className="q">{ACTION_LABEL[step.rbAction!]} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>
+                    <div className="dim" style={{ marginBottom: 6 }}>Order says: <b className="mono">{ACTION_LABEL[step.action]} {step.dev}</b>. Compare carefully before confirming.</div>
                     <div className="acts">
                       <SayOr phrase="That's correct, perform"><button className="btn good" onClick={() => run(e.confirmRepeat(o.id, true))}>“That's correct — perform”</button></SayOr>
                       <SayOr phrase={`Negative. Step ${o.cur + 1}: ${step.action} ${step.dev}. Repeat.`}><button className="btn danger" onClick={() => run(e.confirmRepeat(o.id, false))}>“Negative — repeat”</button></SayOr>
@@ -159,9 +163,11 @@ export function SwitchingView() {
                   </>
                 ) : step.status === 'Pending' || step.status === 'Failed' ? (
                   <div className="acts" style={{ alignItems: 'center' }}>
-                    <span>Next: step {o.cur + 1} — <b className="mono">{step.action.toUpperCase()} {step.dev}</b> by {step.exec === 'SCADA' ? 'SCADA' : `Truck ${step.exec}`}</span>
+                    <span>Next: step {o.cur + 1} — <b className="mono">{ACTION_LABEL[step.action]} {step.dev}</b> by {step.exec === 'SCADA' ? 'SCADA' : `Truck ${step.exec}`}</span>
                     {step.exec === 'SCADA'
-                      ? <button className="btn pri" onClick={() => openSbo({ dev: step.dev, action: step.action, order: o.id, viaOrder: true })}>Select / operate…</button>
+                      ? (step.action === 'open' || step.action === 'close'
+                        ? <button className="btn pri" onClick={() => openSbo({ dev: step.dev, action: step.action as 'open' | 'close', order: o.id, viaOrder: true })}>Select / operate…</button>
+                        : <button className="btn pri" onClick={() => run(e.issueStep(o.id))}>Execute by SCADA</button>)
                       : <SayOr phrase={`Truck ${step.exec}, ${o.id} step ${o.cur + 1}: ${step.action} ${devWord(e.T.els[step.dev] as DevEl)} ${step.dev}${step.loop ? ', loop close' : ''}`}><button className="btn pri" onClick={() => run(e.issueStep(o.id))}>Issue by radio</button></SayOr>}
                     {err && <div className="c-red" style={{ width: '100%', fontSize: 11 }}>{err}</div>}
                   </div>
@@ -175,7 +181,7 @@ export function SwitchingView() {
               <>
                 <div className="sec-t">Add step</div>
                 <div className="form-row">
-                  <select value={action} onChange={ev => setAction(ev.target.value as any)}><option value="open">OPEN</option><option value="close">CLOSE</option></select>
+                  <select value={actionsFor(e.T.els[dev] as DevEl).includes(action) ? action : actionsFor(e.T.els[dev] as DevEl)[0]} onChange={ev => setAction(ev.target.value as SwAction)}>{actionsFor(e.T.els[dev] as DevEl).map(a => <option key={a} value={a}>{ACTION_LABEL[a]}</option>)}</select>
                   <input list="devlist" placeholder="Device ID" value={dev} onChange={ev => setDev(ev.target.value.toUpperCase())} style={{ width: 110 }} />
                   <datalist id="devlist">{devList.map(id => <option key={id} value={id}>{(e.T.els[id] as DevEl).loc}</option>)}</datalist>
                   <select value={exec} onChange={ev => setExec(ev.target.value)}>
@@ -183,9 +189,9 @@ export function SwitchingView() {
                     {Object.keys(e.s.trucks).map(t => <option key={t} value={t}>Truck {t}</option>)}
                   </select>
                   <label style={{ display: 'flex', gap: 3, alignItems: 'center' }}><input type="checkbox" checked={loop} onChange={ev => setLoop(ev.target.checked)} />Loop close (planned parallel)</label>
-                  <button className="btn" onClick={() => { run(e.addStep(o.id, dev, action, exec, loop)); setLoop(false); }}>Add</button>
+                  <button className="btn" onClick={() => { const acts = actionsFor(e.T.els[dev] as DevEl); run(e.addStep(o.id, dev, acts.includes(action) ? action : acts[0], exec, loop)); setLoop(false); }}>Add</button>
                 </div>
-                {dev && e.T.els[dev] && <div className="dim" style={{ fontSize: 10.5 }}>{dev}: {devWord(e.T.els[dev] as DevEl)} at {(e.T.els[dev] as DevEl).loc} · currently {e.s.dev[dev].open ? 'OPEN' : 'CLOSED'}{(e.T.els[dev] as DevEl).scada ? ' · SCADA' : ' · manual only'}{e.s.dev[dev].tags.length ? ` · HOLD ${e.s.dev[dev].tags.join(',')}` : ''}</div>}
+                {dev && e.T.els[dev] && <div className="dim" style={{ fontSize: 10.5 }}>{dev}: {devWord(e.T.els[dev] as DevEl)} at {(e.T.els[dev] as DevEl).loc} · currently {(e.T.els[dev] as DevEl).type === 'reg' ? `tap ${e.s.dev[dev].tap ? (e.s.dev[dev].tap! > 0 ? e.s.dev[dev].tap + 'R' : -e.s.dev[dev].tap! + 'L') : 'NEUTRAL'}, control ${e.s.dev[dev].ctl?.toUpperCase()}` : `${e.s.dev[dev].open ? 'OPEN' : 'CLOSED'}${e.s.dev[dev].ctl ? `, control ${e.s.dev[dev].ctl!.toUpperCase()}` : ''}${e.s.dev[dev].nonReclose ? ', reclosing BLOCKED' : ''}`}{(e.T.els[dev] as DevEl).scada ? ' · SCADA' : ' · manual only'}{e.s.dev[dev].tags.length ? ` · HOLD ${e.s.dev[dev].tags.join(',')}` : ''}</div>}
               </>
             )}
           </>

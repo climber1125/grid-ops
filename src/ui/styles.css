@@ -477,3 +477,6 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
   .printable table.grid th, .printable table.grid td { color: #111 !important; background: #fff !important; border-color: #aaa !important; }
   .printable details { display: block; } .printable details > * { display: block; }
 }
+
+.state.ctl { background: #0f3440; color: #9fe3f3; border: 1px solid #1f5566; }
+:root[data-theme="light"] .state.ctl { background: #d6eef5; color: #0b5566; }

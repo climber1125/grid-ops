@@ -101,8 +101,8 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       const d = T.els[id] as DevEl;
       const r = d.type === 'breaker' ? 6.5 : d.type === 'recloser' ? 6 : d.type === 'tie' ? 5.5 : d.type === 'switch' ? 4.8 : 2.8;
       // Fuses, disconnects and recloser bypass blades only show when zoomed in close.
-      const minor = d.type === 'fuse' || d.type === 'disc' || (!!d.grp && d.type !== 'recloser');
-      const m = L.circleMarker(d.pos, { renderer: rDev, radius: d.type === 'disc' ? 3.2 : d.grp && d.type === 'switch' ? 3.6 : r, weight: d.type === 'fuse' ? 1 : 2 });
+      const minor = d.type === 'fuse' || d.type === 'disc' || (!!d.grp && d.type !== 'recloser' && d.type !== 'reg');
+      const m = L.circleMarker(d.pos, { renderer: rDev, radius: d.type === 'reg' ? 6 : d.type === 'cap' ? 4.6 : d.type === 'disc' ? 3.2 : d.grp && d.type === 'switch' ? 3.6 : r, weight: d.type === 'fuse' ? 1 : 2 });
       m.on('click', (ev) => { L.DomEvent.stopPropagation(ev); setSelRef.current({ kind: 'dev', id }); });
       m.addTo(minor ? fuseGroup : devGroup); devs.set(id, m);
       const lblHtml = `<div class="dlabel" data-dev="${id}" style="transform:translate(8px,-50%)">${id}</div>`;
