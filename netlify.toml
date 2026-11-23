@@ -4,6 +4,8 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Firebase web config key is public by design (access is enforced by firestore.rules).
+  SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyBbqail8UNeUICSJeeGCGM1B3KUaEhnvRM"
 
 [functions]
   directory = "netlify/functions"
