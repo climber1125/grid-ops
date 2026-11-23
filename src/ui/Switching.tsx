@@ -153,8 +153,8 @@ export function SwitchingView() {
               <div className="rbbox">
                 {step.status === 'RepeatBack' ? (
                   <>
-                    <div className="dim">Truck {step.exec} repeat-back for step {o.cur + 1}:</div>
-                    <div className="q">{ACTION_LABEL[step.rbAction!]} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>
+                    <div className="dim">{e.s.trucks[step.exec]?.field ? <>Field crew {step.exec} — <b>listen to the read-back on the radio</b> and compare it to the order:</> : <>Truck {step.exec} repeat-back for step {o.cur + 1}:</>}</div>
+                    {!e.s.trucks[step.exec]?.field && <div className="q">{ACTION_LABEL[step.rbAction!]} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>}
                     <div className="dim" style={{ marginBottom: 6 }}>Order says: <b className="mono">{ACTION_LABEL[step.action]} {step.dev}</b>. Compare carefully before confirming.</div>
                     <div className="acts">
                       <SayOr phrase="That's correct, perform"><button className="btn good" onClick={() => run(e.confirmRepeat(o.id, true))}>“That's correct — perform”</button></SayOr>
@@ -172,7 +172,7 @@ export function SwitchingView() {
                     {err && <div className="c-red" style={{ width: '100%', fontSize: 11 }}>{err}</div>}
                   </div>
                 ) : (
-                  <div className="dim">Step {o.cur + 1}: {step.status === 'Issued' ? 'awaiting repeat-back…' : `Truck ${step.exec} performing ${step.action} ${step.rbDev} — wait for report.`}</div>
+                  <div className="dim">Step {o.cur + 1}: {step.status === 'Issued' ? 'awaiting repeat-back…' : (e.s.trucks[step.exec]?.field ? `Field crew ${step.exec} cleared — waiting for them to tap the tag at ${step.rbDev}, operate, and set the flag.` : `Truck ${step.exec} performing ${step.action} ${step.rbDev} — wait for report.`)}</div>
                 )}
               </div>
             )}

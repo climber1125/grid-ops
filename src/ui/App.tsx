@@ -7,6 +7,7 @@
 // so a hidden main window is never mistaken for a closed one. Linked
 // windows only take over when the main window is actually closed.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import './styles.css';
 import { Engine } from '../sim/engine';
 import { EngineCtx, type Ctx, type Sel, type SboReq } from './ctx';
 import { GisMap, selPos } from './GisMap';
@@ -19,6 +20,10 @@ import { Inspector } from './Inspector';
 import { SboModal, ScenarioModal, AarModal } from './Modals';
 import { InstructorModal } from './Instructor';
 import { decodeExercise, type ExerciseDef } from '../sim/exercise';
+import { LOCKED_SCENARIOS } from '../sim/scenarios';
+import { fieldInit } from '../sim/field';
+import { getBackend, newCode } from '../field/backend';
+import { useFieldLink } from '../field/useFieldLink';
 
 const urlParams = new URLSearchParams(window.location.search);
 const urlExercise = urlParams.get('ex') ? decodeExercise(urlParams.get('ex')!) : null;
@@ -130,14 +135,27 @@ export default function App() {
   const isMaster = role === 'master';
   const mapVisible = view === 'gis' || (view === 'all' && tab === 'gis' && (!narrow || mon === 'gis'));
   const mapVisRef = useRef(mapVisible); mapVisRef.current = mapVisible;
+  const fieldLink = useFieldLink(e, role === 'master');
   const ce = useMemo(() => (role === 'replica' ? remoteEngine(e, post) : e), [e, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const flash = (text: string, level: 'info' | 'warn' | 'alarm' | 'good' = 'info') => setToasts(t => [...t, { id: Date.now() + Math.random(), text, level, t: eRef.current.hhmm(), born: Date.now() }].slice(-5));
 
   const start = (id: string, seed: number, emg?: number) => {
+    if (LOCKED_SCENARIOS.has(id)) { flash('That scenario needs the instructor password', 'warn'); return; }
     if (roleRef.current === 'replica') { post({ type: 'start', from: WIN_ID, id, seed, emg }); setShowScen(false); return; }
     const ne = Engine.create(id, seed); applyRoster(ne); if (emg && emg > 0) ne.scheduleDrill(emg);
     setE(ne); setShowScen(false); setShowAar(false); if (viewRef.current === 'all') setTabRaw('gis');
+  };
+  const startField = async (pw: string, seed: number) => {
+    if (roleRef.current === 'replica') throw new Error('Open the field session from the main console window.');
+    const be = getBackend();
+    const code = newCode();
+    await be.createSession(code, pw.trim());
+    const ne = Engine.create('Z', seed); applyRoster(ne);
+    fieldInit(ne, code, be.kind);
+    ne.setSpeed(1);
+    setE(ne); setShowScen(false); setShowAar(false);
+    if (viewRef.current === 'all') setTabRaw('gis');
   };
   const startExercise = (def: ExerciseDef) => {
     if (roleRef.current === 'replica') { flash('Start exercises from the main console window', 'warn'); return; }
@@ -401,6 +419,7 @@ export default function App() {
     setSwPrefill: (p: Prefill) => { prefillRef.current = p; setSwPrefillState(p); },
     flash,
     voiceReq,
+    fieldLink,
     ptt: { supported: pttSupported, active: pttActive, interim: pttInterim, error: pttError, start: pttStart, stop: pttStop, send: sendTx },
   };
 
@@ -466,7 +485,7 @@ export default function App() {
           <div className="clockdate">{days[d.getDay()]} {String(d.getDate()).padStart(2, '0')} {mons[d.getMonth()]}<br />{d.getFullYear()} CDT</div>
           <div className="speed">
             <button data-tut="pause" className={`btn ${s.paused ? 'on' : ''}`} onClick={() => { ce.setPaused(!s.paused); setVer(v => v + 1); }}>{s.paused ? '▶' : '❚❚'}</button>
-            {[1, 5, 10].map(x => <button key={x} className={`btn ${!s.paused && s.speed === x ? 'on' : ''}`} onClick={() => { ce.setSpeed(x); setVer(v => v + 1); }}>{x}×</button>)}
+            {[1, 5, 10].map(x => <button key={x} disabled={!!s.field?.code && x > 1} title={s.field?.code && x > 1 ? 'Field session runs in real time' : undefined} className={`btn ${!s.paused && s.speed === x ? 'on' : ''}`} onClick={() => { ce.setSpeed(x); setVer(v => v + 1); }}>{x}×</button>)}
           </div>
           <div className="tb-sep" />
           <div className="stat"><span className="k">Served</span><span className="v c-green">{served.toLocaleString()}</span></div>
@@ -604,7 +623,7 @@ export default function App() {
 
       {waiting && <div className="modal-bg"><div className="mono" style={{ color: 'var(--cyan)', textAlign: 'center' }}>{role === 'pending' ? 'Connecting to GRID OPS console…' : 'Waiting for the main console…'}<div className="dim" style={{ fontSize: 11, marginTop: 6 }}>If the main window is minimized this can take a few seconds.</div></div></div>}
       {sbo && <SboModal req={sbo} onClose={() => setSbo(null)} />}
-      {showScen && <ScenarioModal current={e.scen.id} onStart={start} onClose={() => setShowScen(false)} saved={saved} onResume={() => resume('autosave')} onLoadManual={() => resume('manual')} onInstructor={() => { setShowScen(false); setShowInstr(true); }} onStartExercise={startExercise} />}
+      {showScen && <ScenarioModal current={e.scen.id} onStart={start} onClose={() => setShowScen(false)} saved={saved} onResume={() => resume('autosave')} onLoadManual={() => resume('manual')} onInstructor={() => { setShowScen(false); setShowInstr(true); }} onStartExercise={startExercise} onStartField={startField} />}
       {showInstr && <InstructorModal onClose={() => setShowInstr(false)} onStartExercise={startExercise} />}
       {showAar && <AarModal onClose={() => setShowAar(false)} onNew={() => { setShowAar(false); setShowScen(true); }} />}
     </EngineCtx.Provider>

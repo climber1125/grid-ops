@@ -114,6 +114,47 @@ export interface Truck {
   drive?: number; work?: number;
   /** Experience level — drives how often the crew repeats a switching step back wrong. */
   exp?: string;
+  /** A real crew on a phone (field scenario). The sim never drives or animates it. */
+  field?: FieldCrewInfo;
+}
+
+// ── Field scenario: real crews on phones ─────────────────────
+export type FieldStatus = 'At yard' | 'En route' | 'On site' | 'Working' | 'Standing by';
+export interface FieldCrewInfo {
+  foreman: string; members: string[];
+  status: FieldStatus;
+  /** Device the crew is at (or heading to); 'yard' at the service yard. */
+  at: string; dest?: string;
+  lastT: number;
+}
+/** Operator → crew message (one document per message; updated in place as it moves along). */
+export interface ToCrew {
+  id: string; truck: string; t: number;
+  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info';
+  text: string;
+  dev?: string; action?: SwAction; order?: string; step?: number; loop?: boolean;
+  /** issued → (repeat) → cleared → done; or cancelled. Clearance: issued → released. */
+  state: 'issued' | 'repeat' | 'cleared' | 'done' | 'cancelled' | 'released';
+  clearance?: string; devs?: string[];
+}
+/** Crew → operator event. */
+export interface FromCrew {
+  id: string; truck: string; t: number; uid?: string;
+  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note';
+  foreman?: string; members?: string[];
+  status?: FieldStatus; at?: string; dest?: string;
+  msg?: string; dev?: string; action?: SwAction; verified?: boolean; tag?: 'nfc' | 'qr' | 'manual' | 'none';
+  text?: string;
+}
+export interface FieldState {
+  code: string | null;
+  backend: 'firebase' | 'local' | null;
+  /** Messages for the link layer to write to the shared session. */
+  outbox: ToCrew[];
+  /** Every message sent, by id, so the console can show them. */
+  sent: Record<string, ToCrew>;
+  /** Crew event ids already applied. */
+  seen: Record<string, number>;
 }
 
 export type IncStatus =
@@ -187,6 +228,7 @@ export interface QItem { t: number; seq: number; kind: string; data: any; }
 
 export interface SimState {
   version: 2;
+  field?: FieldState;
   seed: number; scenario: string; t: number; startEpoch: number;
   speed: number; paused: boolean; rng: number; seq: number;
   queue: QItem[];

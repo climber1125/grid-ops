@@ -16,6 +16,9 @@ import { dist, bearing, lerp } from './geo';
 import { route, nearestName, SERVICE_CENTER } from './roads';
 import { checkOrder, type ExerciseDef, type ExState } from './exercise';
 import { stepPhrase, ACTION_LABEL } from './radio';
+import { isYardFeeder } from './texasYard';
+import { fieldIssueStep, fieldConfirm, fieldClearanceIssued, fieldReleaseAck, fieldDispatch, fieldManualDone, fieldApply } from './field';
+import type { FromCrew } from './types';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
 import { parseRadio } from './voice';
@@ -181,6 +184,10 @@ export class Engine {
   // ── Session controls (routed as actions so linked windows can use them) ──
   setTutStep(n: number) { this.s.scen.flags.tutStep = n; this.bump(); }
   setSpeed(x: number) { this.s.speed = x; this.s.paused = false; this.bump(); }
+  // Field scenario (real crews on phones)
+  fieldSendTo(truck: string, dev: string, note = '') { return fieldDispatch(this, truck, dev, note); }
+  fieldManual(oid: string) { return fieldManualDone(this, oid); }
+  fieldEvent(ev: FromCrew) { return fieldApply(this, ev); }
   setPaused(p: boolean) { this.s.paused = p; this.bump(); }
   setAutoAssist(on: boolean) { this.s.autoAssist = on; this.decision(`Auto-assist ${on ? 'ON' : 'OFF'}`); this.bump(); }
   /** Id the next newOrder() will get (lets a linked window select it before the main window replies). */
@@ -791,6 +798,7 @@ export class Engine {
   }
 
   startRoute(tr: Truck, dest: LatLng, purpose: string, slow = 1) {
+    if (tr.field) { tr.route = null; return 0; } // real crews move when the foreman updates them
     slow *= tr.drive ?? 1;
     const r = route(tr.pos, dest);
     const tok = ++this.s.seq;
@@ -840,6 +848,7 @@ export class Engine {
     if (!tr || !inc) return 'Unknown unit or incident';
     if (inc.status === 'Closed' || inc.status === 'Restored') return 'Incident already restored';
     if (tr.status === 'Off Duty') return `${truckId} is off duty`;
+    if (tr.field) return `${truckId} is a real field crew — switching and clearances only. Use "Send to device" to move them.`;
     if (tr.clearance) return `${truckId} holds clearance ${tr.clearance} — cannot reassign`;
     if (tr.sw) return `${truckId} is performing switching`;
     if (tr.task?.kind === 'incident' && tr.task.id === incId) return `${truckId} already assigned`;
@@ -896,6 +905,7 @@ export class Engine {
     tr.task = null; tr.tok++; tr.waitIso = null;
     if (tr.status !== 'Out of Contact') tr.status = 'Available';
     tr.route = null;
+    if (tr.field) return;
     this.schedule(60 + this.rand() * 150, 'woPick', { truck: tr.id, tok: tr.tok });
   }
 
@@ -1110,6 +1120,7 @@ export class Engine {
     const pts = sec.bounds.join(', ');
     this.decision(`Issued clearance ${id} to ${r.truck} — hold tags on ${pts}`, true);
     this.log('SAFETY', 'good', `Clearance ${id} issued to Truck ${r.truck}: HOLD tags on ${pts}`);
+    if (tr.field) { fieldClearanceIssued(this, tr, id, sec.bounds); this.bump(); return null; }
     const end = this.say([
       ['C', `Truck ${r.truck}, Sparks Control. Clearance ${id} is issued to you on the section bounded by ${pts}. All points are open and hold tagged at ${this.hhmm()}.`],
       [r.truck, `${r.truck} repeating, clearance ${id} issued on the section bounded by ${pts}, all points open and tagged, ${this.hhmm()}. We'll test and ground.`],
@@ -1147,7 +1158,8 @@ export class Engine {
     if (pend) {
       pend.status = 'Done';
       this.decision(`Acknowledged release of ${cl.id} from ${cl.truck}; hold tags removed`, true);
-      this.say([['C', `Truck ${cl.truck}, Sparks Control. Copy, clearance ${cl.id} released at ${this.hhmm()}, tags removed. Stand by for restoration switching.`], [cl.truck, `${cl.truck} copies, standing by.`]], { kind: 'switching', unit: cl.truck });
+      if (tr?.field) fieldReleaseAck(this, tr, cl.id);
+      else this.say([['C', `Truck ${cl.truck}, Sparks Control. Copy, clearance ${cl.id} released at ${this.hhmm()}, tags removed. Stand by for restoration switching.`], [cl.truck, `${cl.truck} copies, standing by.`]], { kind: 'switching', unit: cl.truck });
       if (tr) tr.status = 'Standing By';
     }
     this.log('SAFETY', pend ? 'good' : 'alarm', `Clearance ${cl.id} released${pend ? '' : ' (FORCED)'}`);
@@ -1266,6 +1278,7 @@ export class Engine {
     if (!tr.comm) { this.say([['C', `Truck ${tr.id}, Sparks Control.`]], { unit: tr.id }); this.schedule(14, 'noResponse', { truck: tr.id }); return `No response from ${tr.id}`; }
     const okStatus = ['Available', 'Standing By', 'On Scene', 'En Route', 'Dispatched'].includes(tr.status) || tr.task?.kind === 'workorder';
     if (!okStatus || tr.clearance) return `Truck ${tr.id} is ${tr.clearance ? 'working under clearance' : tr.status.toLowerCase()} — not available for switching`;
+    if (tr.field) { tr.sw = { order: oid, idx: o.cur }; fieldIssueStep(this, tr, o, st); this.bump(); return null; }
     if (tr.task?.kind === 'workorder') { this.s.workorders[tr.task.id].status = 'Open'; tr.task = null; }
     tr.sw = { order: oid, idx: o.cur }; tr.tok++; tr.route = null; tr.status = 'Switching';
     st.status = 'Issued'; st.note = undefined;
@@ -1287,6 +1300,7 @@ export class Engine {
     const st = o?.steps[o.cur];
     if (!st || st.status !== 'RepeatBack') return 'No repeat-back pending';
     const tr = this.truck(st.exec)!;
+    if (tr?.field) { fieldConfirm(this, o, st, correct); return null; }
     const wrong = st.rbDev !== st.dev || st.rbAction !== st.action;
     if (correct && wrong && this.s.scenario === 'T') {
       // Tutorial safety net: do not let the mistake through — coach, then re-issue the step.
@@ -1384,10 +1398,14 @@ export class Engine {
     else if (!tr.task) { tr.status = 'Available'; this.schedule(120, 'woPick', { truck: tr.id, tok: tr.tok }); }
   }
 
+  /** Feeders and loads outside the Texas training yard (random events and work orders stay off the yard). */
+  get simFeeders() { return this.T.feederIds.filter(f => !isYardFeeder(f)); }
+  get simLoads() { return this.T.loadIds.filter(l => !isYardFeeder(this.T.loads[l].feeder)); }
+
   // ── Work orders ────────────────────────────────────────────
   newWorkOrder() {
     const [type, dur] = this.pick(WO_TYPES);
-    const ld = this.T.loads[this.pick(this.T.loadIds)];
+    const ld = this.T.loads[this.pick(this.simLoads)];
     const id = this.nextId('WO', 4470);
     const wo: WorkOrder = { id, type, pos: ld.pos, loc: nearestName(ld.pos), dur: dur * 60 * (0.8 + this.rand() * 0.5), status: 'Open' };
     this.s.workorders[id] = wo;
@@ -1768,7 +1786,7 @@ export class Engine {
       const pending = this.openIncidents().filter(i => !i.crew && i.status === 'New' && this.s.t - i.t > 60).sort((a, b) => a.priority - b.priority || a.t - b.t);
       for (const inc of pending) {
         const tgt = this.dev(inc.predDev).pos;
-        const avail = Object.values(this.s.trucks).filter(t => t.comm && !t.clearance && !t.sw && (t.status === 'Available' || t.task?.kind === 'workorder'))
+        const avail = Object.values(this.s.trucks).filter(t => !t.field && t.comm && !t.clearance && !t.sw && (t.status === 'Available' || t.task?.kind === 'workorder'))
           .sort((a, b) => dist(a.pos, tgt) - dist(b.pos, tgt));
         if (!avail.length) break;
         this.dispatch(avail[0].id, inc.id, true);
@@ -1776,7 +1794,7 @@ export class Engine {
     }
     // isolation watchers -> clearance request
     for (const tr of Object.values(this.s.trucks)) {
-      if (!tr.waitIso || tr.clearance || !tr.comm) continue;
+      if (!tr.waitIso || tr.clearance || !tr.comm || tr.field) continue;
       const w = tr.waitIso as any;
       if (!w.devs.every((x: string) => this.s.dev[x].open)) continue;
       if (w.closed && !w.closed.every((x: string) => !this.s.dev[x].open)) continue;
@@ -2169,6 +2187,7 @@ export class Engine {
     if (!wo) return `No work order ${woId}`;
     if (wo.status === 'Done') return `${woId} is already complete`;
     if (tr.status === 'Off Duty') return `${truckId} is off duty`;
+    if (tr.field) return `${truckId} is a real field crew — switching and clearances only. Use "Send to device" to move them.`;
     if (tr.clearance) return `${truckId} holds clearance ${tr.clearance} — cannot reassign`;
     if (tr.sw) return `${truckId} is performing switching`;
     if (tr.task?.kind === 'workorder' && tr.task.id === woId) return `${truckId} is already on ${woId}`;
@@ -2276,7 +2295,8 @@ export class Engine {
   }
 
   genEvent(g: string) {
-    const energizedLoads = this.T.loadIds.filter(l => this.loadEn(l) && this.T.loads[l].cls !== 'critical' && !this.s.planned[l]);
+    // The training yard only gets events its own scenario scripts.
+    const energizedLoads = this.simLoads.filter(l => this.loadEn(l) && this.T.loads[l].cls !== 'critical' && !this.s.planned[l]);
     switch (g) {
       case 'xfmr': {
         const lid = this.pick(energizedLoads.filter(l => this.T.loads[l].cls !== 'ind'));
@@ -2285,14 +2305,14 @@ export class Engine {
         this.applyFault(f); break;
       }
       case 'lateral': {
-        const fuses = Object.keys(this.T.laterals).filter(fz => !this.s.dev[fz].open && this.nodeEn(this.dev(fz).to));
+        const fuses = Object.keys(this.T.laterals).filter(fz => !isYardFeeder(this.T.laterals[fz].feeder)).filter(fz => !this.s.dev[fz].open && this.nodeEn(this.dev(fz).to));
         const fz = this.pick(fuses); if (!fz) return;
         const el = this.pick(this.T.laterals[fz].els);
         const f = this.createFault(el, false, this.pick(['tree_lateral', 'animal', 'tree_lateral', 'vehicle'] as Cause[]), true);
         this.applyFault(f); break;
       }
       case 'momentary': {
-        const fid = this.pick(this.T.feederIds);
+        const fid = this.pick(this.simFeeders);
         const el = this.pick(this.T.feeders[fid].mainEls.slice(2));
         if (!this.elEnergized(el)) return;
         const f = this.createFault(el, false, this.pick(['temporary', 'lightning'] as Cause[]), false);
@@ -2304,13 +2324,13 @@ export class Engine {
         break;
       }
       case 'comm': {
-        const scada = this.T.switchable.filter(x => this.dev(x).scada && this.dev(x).type !== 'breaker' && this.s.dev[x].comm);
+        const scada = this.T.switchable.filter(x => this.dev(x).scada && this.dev(x).type !== 'breaker' && this.s.dev[x].comm && !isYardFeeder(this.dev(x).feeder));
         const d = this.pick(scada);
         if (d) this.handleDevComm(d, false);
         break;
       }
       case 'mainline': {
-        const fid = this.pick(this.T.feederIds);
+        const fid = this.pick(this.simFeeders);
         const els = this.T.feeders[fid].mainEls.slice(3).filter(e => this.elEnergized(e));
         const el = this.pick(els); if (!el) return;
         const f = this.createFault(el, false, this.pick(['tree_primary', 'insulator'] as Cause[]), true, this.rand() < 0.4);

@@ -1,12 +1,13 @@
 // MONITOR 5 — Dispatch / Crew board, and SCADA alarm summary + event logs
 import { useState } from 'react';
+import { FieldPanel } from './FieldPanel';
 import { useCtx, age } from './ctx';
 import { RosterPanel, ReliabilityPanel } from './Fleet';
 import { SayOr } from './VoiceUi';
 
 function WoDispatch({ wo }: { wo: { id: string; truck?: string } }) {
   const { e, flash, voiceReq } = useCtx();
-  const units = Object.values(e.s.trucks).filter(t => t.status !== 'Off Duty').sort((a, b) => a.id.localeCompare(b.id));
+  const units = Object.values(e.s.trucks).filter(t => t.status !== 'Off Duty' && !t.field).sort((a, b) => a.id.localeCompare(b.id));
   const [u, setU] = useState('');
   const pick = u || units.find(t => t.status === 'Available' && t.id !== wo.truck)?.id || units[0]?.id || '';
   if (!units.length) return null;
@@ -20,9 +21,11 @@ function WoDispatch({ wo }: { wo: { id: string; truck?: string } }) {
   );
 }
 
-export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'roster' | 'rel' }) {
+export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'roster' | 'rel' | 'field' }) {
   const { e, sel, setSel, flyTo } = useCtx();
-  const [tab, setTab] = useState<'units' | 'wo' | 'roster' | 'rel'>(initial);
+  const [tab, setTab] = useState<'units' | 'wo' | 'roster' | 'rel' | 'field'>(initial);
+  const fieldOn = !!e.s.field?.code;
+  const fieldN = Object.values(e.s.trucks).filter(t => t.field).length;
   const trucks = Object.values(e.s.trucks).sort((a, b) => a.id.localeCompare(b.id));
   const wos = Object.values(e.s.workorders).filter(w => w.status !== 'Done');
   return (
@@ -30,6 +33,7 @@ export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'r
       <div className="ph">
         <span className="mon">M5</span><span className="ttl">Field Units</span>
         <div className="tabs" style={{ marginLeft: 6 }}>
+          {fieldOn && <button className={`tab ${tab === 'field' ? 'on' : ''}`} onClick={() => setTab('field')}>Field<span className="badge amber">{fieldN}</span></button>}
           <button className={`tab ${tab === 'units' ? 'on' : ''}`} onClick={() => setTab('units')}>Units<span className="badge">{trucks.length}</span></button>
           <button className={`tab ${tab === 'wo' ? 'on' : ''}`} onClick={() => setTab('wo')}>Work orders<span className="badge">{wos.length}</span></button>
           <button className={`tab ${tab === 'roster' ? 'on' : ''}`} onClick={() => setTab('roster')}>Roster</button>
@@ -48,7 +52,7 @@ export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'r
                 const asg = t.sw ? `${t.sw.order} step ${t.sw.idx + 1}` : t.task?.kind === 'incident' ? `${t.task.id} · ${t.task.stage}` : t.task?.kind === 'workorder' ? `${t.task.id} ${e.s.workorders[t.task.id]?.type ?? ''}` : t.task?.kind === 'planned' ? `Planned ${t.task.id}` : t.task?.kind === 'welfare' ? `Welfare → ${t.task.target}` : t.task?.kind === 'home' ? 'To service center' : '—';
                 return (
                   <tr key={t.id} className={`row ${sel?.kind === 'truck' && sel.id === t.id ? 'sel' : ''}`} onClick={() => { setSel({ kind: 'truck', id: t.id }); flyTo(t.pos); }}>
-                    <td className="mono"><b>{t.id}</b></td>
+                    <td className="mono"><b>{t.id}</b>{t.field ? <span className="badge amber" style={{ marginLeft: 3 }}>FIELD</span> : null}</td>
                     <td className="dim">{t.crew}</td>
                     <td><span className={`chip ${t.status.replace(/\s+/g, '')}`}>{t.status}</span>{t.clearance ? <span className="badge amber" style={{ marginLeft: 3 }}>{t.clearance}</span> : null}</td>
                     <td className="mono" style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{asg}</td>
@@ -61,7 +65,7 @@ export function CrewBoard({ initial = 'units' }: { initial?: 'units' | 'wo' | 'r
               })}
             </tbody>
           </table>
-        ) : tab === 'roster' ? <RosterPanel /> : tab === 'rel' ? <ReliabilityPanel /> : (
+        ) : tab === 'field' ? <FieldPanel /> : tab === 'roster' ? <RosterPanel /> : tab === 'rel' ? <ReliabilityPanel /> : (
           <table className="grid">
             <thead><tr><th>WO</th><th>Type</th><th>Location</th><th>Est.</th><th>Status</th><th>Unit</th><th>Dispatch</th></tr></thead>
             <tbody>{wos.map(w => <tr key={w.id} className="row" onClick={() => flyTo(w.pos, 16)}><td className="mono">{w.id}</td><td>{w.type}</td><td>{w.loc}</td><td className="num">{Math.round(w.dur / 60)}m</td><td>{w.status}</td><td className="mono">{w.truck ?? '—'}</td><td><WoDispatch wo={w} /></td></tr>)}</tbody>

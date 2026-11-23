@@ -702,6 +702,107 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
     },
     isDone(e) { const ex = e.s.scen.flags.ex as ExState | undefined; return !!ex?.finished || e.s.t > 4 * 3600; },
   },
+
+  Z: {
+    id: 'Z', short: 'Z', name: 'Field Switching — Texas Campus (training)',
+    brief: 'Instructor-led, 30–45 minutes, password required. Real crews on phones work the Texas Campus yard (TX-4110 / TX-4120) while simulated crews run Sparks. At 5 minutes, planned job PW-4101: replace the crossarm at pole P12 on TX-4120 between S-4121 and S-4123 — write the switching order, pick up the Training Office through TS-4119, and run it with a real crew. Storm outages hit Sparks at 15 minutes. Expect trouble on the yard after that. Real crews tap the tag at each device and set the OPEN/CLOSED flag; their dots move when the foreman updates status.',
+    objectives: [
+      { id: 'z1', text: 'Every field operation done on an issued, confirmed step' },
+      { id: 'z2', text: 'PW-4101: clearance issued only on the isolated, dead section, to a field crew' },
+      { id: 'z3', text: 'PW-4101: Training Office stays on; Gas Lab restored and TX-4120 back to normal' },
+      { id: 'z4', text: 'Yard lockout: Pole Yard Lighting restored within 15 minutes' },
+      { id: 'z5', text: 'Yard lockout: repaired under clearance, Shop Building on, yard back to normal' },
+      { id: 'z6', text: 'No safety violations' },
+    ],
+    background: { single: 2400 },
+    setup(e) {
+      e.s.autoAssist = false;
+      e.s.scen.flags.field = true;
+      e.s.scen.flags.noRandomErrors = false;
+      e.addTruck('230', SERVICE_CENTER);
+      e.addTruck('233', [33.2290, -97.1330]);
+      e.addTruck('235', [33.2030, -97.1560]);
+      startOnWorkOrder(e, '235', 1500);
+      e.addTruck('238', SERVICE_CENTER);
+      startOnWorkOrder(e, '238', 900);
+      const sched: [number, string, any][] = [
+        [300, 'pw', {}],
+        [900, 'storm', {}], [930, 'mom', { f: 'CH-1210' }], [990, 'xf', { f: 'IW-2120' }], [1080, 'lat', { f: 'BS-3110' }], [1260, 'xf', { f: 'CH-1220' }],
+        [1500, 'yard', {}], [2100, 'clear', {}],
+      ];
+      for (const [t, name, d] of sched) e.schedule(t, 'scn', { name, ...d });
+      e.log('SYSTEM', 'info', 'Texas Campus yard (TX-4110 / TX-4120) is worked by real crews on phones. Use "Send to device" in the Field panel; switching steps and clearances go to their phones.');
+    },
+    event(e, name, d) {
+      const F = e.s.scen.flags;
+      const lat = (f: string) => Object.keys(e.T.laterals).filter(x => e.T.laterals[x].feeder === f && !e.s.dev[x].open);
+      switch (name) {
+        case 'pw': {
+          const gas = 'TX-4496';
+          e.s.planned[gas] = true;
+          F.pwT = e.s.t;
+          e.log('OMS', 'alarm', 'PLANNED WORK PW-4101: replace crossarm at pole P12, TX-4120, between S-4121 and S-4123. Gas Lab planned out. Training Office (critical) must stay on — pick it up through TS-4119. Write the switching order and assign a field crew.');
+          break;
+        }
+        case 'storm':
+          e.s.weather = { text: 'SEVERE T-STORM WARNING — gusts 55 mph, lightning', level: 'warning' };
+          e.log('SYSTEM', 'alarm', 'NWS: Severe Thunderstorm Warning for Sparks. Expect outages.');
+          break;
+        case 'mom': fault(e, e.pick(e.T.feeders[d.f].mainEls.slice(2)), false, 'lightning', false); break;
+        case 'lat': { const fz = e.pick(lat(d.f)); if (fz) fault(e, e.pick(e.T.laterals[fz].els), false, 'tree_lateral', true); break; }
+        case 'xf': { const ls = e.T.loadIds.filter(l => e.T.loads[l].feeder === d.f && e.T.loads[l].cls === 'res' && e.loadEn(l)); if (ls.length) fault(e, e.pick(ls), true, 'xfmr_failure', true); break; }
+        case 'yard': {
+          // Don't drop the yard fault in the middle of PW-4101 — hold it up to 10 more minutes.
+          const yardCl = Object.values(e.s.clearances).some(c => c.status === 'Active' && e.s.trucks[c.truck]?.field);
+          if ((yardCl || e.s.dev['TS-4119'].open === false) && (d.tries ?? 0) < 5) { e.schedule(120, 'scn', { name: 'yard', tries: (d.tries ?? 0) + 1 }); break; }
+          const f = fault(e, 'TX-4110-M04', false, 'tree_primary', true, false);
+          F.yardFault = f.id; F.yardT = e.s.t;
+          e.log('OMS', 'info', 'Texas Campus: a call from the shop — loud bang and a flash out toward pole P4, power is off in the shop.');
+          break;
+        }
+        case 'clear':
+          e.s.weather = { text: 'Storm cleared — wind NW 12 mph', level: 'watch' };
+          e.s.scen.flags.genOff = { xfmr: true, lateral: true, momentary: true };
+          e.log('SYSTEM', 'info', 'NWS: Severe Thunderstorm Warning expired.');
+          break;
+      }
+    },
+    periodic(e) {
+      const F = e.s.scen.flags;
+      const V = e.s.metrics.violations;
+      if (V.some(v => v.code === 'field-op')) e.setObj('z1', 'fail', V.find(v => v.code === 'field-op')!.text);
+      if (V.some(v => v.code !== 'field-op' && v.code !== 'repeat-back')) e.setObj('z6', 'fail', V.find(v => v.code !== 'field-op' && v.code !== 'repeat-back')!.text);
+      if (F.pwT !== undefined) {
+        const gasNode = e.T.loads['TX-4496'].node;
+        const pwCl = Object.values(e.s.clearances).find(c => c.nodes.includes(gasNode) && e.s.trucks[c.truck]?.field);
+        if (V.some(v => v.code === 'clearance')) e.setObj('z2', 'fail');
+        else if (pwCl) e.setObj('z2', 'pass');
+        if (!e.loadEn('TX-4497')) e.setObj('z3', 'fail', 'Training Office lost power');
+        if (pwCl) F.pwCl = pwCl.id;
+        const tx20 = ['S-4121', 'S-4123', 'TS-4119'].every(id => e.s.dev[id].open === (e.T.els[id] as DevEl).normalOpen);
+        if (pwCl?.status === 'Released' && e.loadEn('TX-4496') && tx20) { delete e.s.planned['TX-4496']; e.setObj('z3', 'pass'); }
+      }
+      if (F.yardT !== undefined) {
+        if (e.loadEn('TX-4495') && e.s.t - F.yardT <= 900 && F.lightT === undefined) { F.lightT = e.s.t; e.setObj('z4', 'pass', `${((e.s.t - F.yardT) / 60).toFixed(1)} min`); }
+        else if (!e.loadEn('TX-4495') && e.s.t - F.yardT > 900) e.setObj('z4', 'fail', 'Lighting out > 15 min');
+        const yf = e.s.faults[F.yardFault];
+        const yardNormal = e.T.devIds.every(id => { const el = e.T.els[id] as DevEl; return !el.feeder?.startsWith('TX') || el.type === 'cap' || el.type === 'xfmr' || (e.s.dev[id].open === el.normalOpen && !e.s.dev[id].lockout); });
+        const yardLoadsOn = e.T.loadIds.filter(l => e.T.loads[l].feeder.startsWith('TX')).every(l => e.loadEn(l));
+        if (yf && !yf.active && yardNormal && yardLoadsOn && !Object.values(e.s.clearances).some(c => c.status === 'Active')) e.setObj('z5', 'pass');
+      }
+      if (e.s.t > 45 * 60) {
+        for (const id of ['z2', 'z3', 'z4', 'z5']) if (e.s.scen.obj[id].status === 'pending') e.setObj(id, 'fail', 'Not done by 45 min');
+      }
+      const ob = e.s.scen.obj;
+      if (ob.z3.status !== 'pending' && ob.z5.status !== 'pending') {
+        if (ob.z1.status === 'pending') e.setObj('z1', 'pass');
+        if (ob.z6.status === 'pending') e.setObj('z6', 'pass');
+      }
+    },
+    isDone(e) { const ob = e.s.scen.obj; return (ob.z3.status !== 'pending' && ob.z5.status !== 'pending' && ob.z1.status !== 'pending') || e.s.t > 50 * 60; },
+  },
 };
 
-export const SCENARIO_LIST = ['T', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'X'];
+export const SCENARIO_LIST = ['T', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'X', 'Z'];
+/** Scenarios that need the instructor password and a live field session. */
+export const LOCKED_SCENARIOS = new Set(['Z']);

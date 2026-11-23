@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './ui/App';
-import './ui/styles.css';
+
+// Crew phones (/field, /t/<device>) load only the small field app, not the console.
+const isField = /^\/(field|t)(\/|$)/.test(window.location.pathname);
+const FieldApp = lazy(() => import('./field/FieldApp'));
+const ConsoleApp = lazy(() => import('./ui/App'));
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <Suspense fallback={null}>{isField ? <FieldApp /> : <ConsoleApp />}</Suspense>
   </React.StrictMode>,
 );

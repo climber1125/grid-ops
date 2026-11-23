@@ -20,6 +20,8 @@ export interface Ctx {
   /** Voice radio is on and working: radio traffic must be spoken, not clicked. */
   voiceReq: boolean;
   ptt: Ptt;
+  /** Field session link status (main console only). */
+  fieldLink?: import('../field/useFieldLink').LinkStatus | null;
 }
 
 export const EngineCtx = createContext<Ctx>(null as unknown as Ctx);

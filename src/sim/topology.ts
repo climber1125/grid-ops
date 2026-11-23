@@ -8,6 +8,7 @@ import { cumLen, pointAt, dirAt, subPath, offset, dist } from './geo';
 import { RNG } from './rng';
 import { nearestName, zoneAt } from './roads';
 import { solve } from './network';
+import { YARD_SUB, YARD_POLES, YARD_FEEDERS, YARD_TIES, yardPos } from './texasYard';
 
 interface DevSpec { f: number; type: 'recloser' | 'switch' | 'regulator' | 'cap'; id: string; scada: boolean; }
 interface CritSpec { f: number; side: 1 | -1; name: string; cls: LoadClass; kw: number; cust: number; }
@@ -176,6 +177,10 @@ export function buildTopology(): Topology {
     const bus = mkNode(s.bus);
     T.subs[s.id] = { id: s.id, name: s.name, pos: s.pos, bus, mva: s.mva, feeders: [] };
   }
+  {
+    const p = yardPos(YARD_SUB.at);
+    T.subs[YARD_SUB.id] = { id: YARD_SUB.id, name: YARD_SUB.name, pos: yardPos([YARD_SUB.at[0] - 40, YARD_SUB.at[1] - 40]), bus: mkNode(p), mva: YARD_SUB.mva, feeders: [] };
+  }
 
   for (const fs of FEEDERS) {
     const num = fs.id.slice(3);
@@ -307,6 +312,69 @@ export function buildTopology(): Topology {
     info.end = cur;
   }
 
+  // ── Texas campus training yard: poles, spans and devices laid out by hand (texasYard.ts) ──
+  const poleNode: Record<string, string> = {};
+  for (const yf of YARD_FEEDERS) {
+    const num = yf.id.slice(3);
+    const sub = T.subs[YARD_SUB.id];
+    sub.feeders.push(yf.id);
+    const pts = [yardPos(YARD_SUB.at), ...yf.route.map(pid => yardPos(YARD_POLES[pid]))];
+    const cum = cumLen(pts);
+    const L = cum[cum.length - 1];
+    const info: FeederInfo = {
+      id: yf.id, sub: YARD_SUB.id, color: yf.color, ratingA: yf.ratingA, length: L, breaker: 'CB-' + num,
+      mainEls: [], end: '', sch: [], vertNodes: [], ties: [],
+    };
+    T.feeders[yf.id] = info; T.feederIds.push(yf.id);
+    const nb = mkNode(pts[0]), n0 = mkNode(pts[0]);
+    mkDev(info.breaker, sub.bus, nb, yf.id, 'breaker', true, false, pts[0], { loc: 'Texas Campus Sub' });
+    mkDev(`D-${num}L`, nb, n0, yf.id, 'disc', false, false, pts[0], { vis: info.breaker, loc: 'Texas Campus Sub', equip: 'Feeder getaway disconnect (gang-operated), NON-load-break — visible open for the breaker' });
+    info.sch.push({ kind: 'dev', id: info.breaker, f: 0, node: n0 });
+    info.vertNodes.push({ pos: pts[0], node: n0 });
+    let cur = n0, seq = 0;
+    yf.route.forEach((pid, i) => {
+      const pos = pts[i + 1];
+      const nn = mkNode(pos);
+      const id = `${yf.id}-M${String(++seq).padStart(2, '0')}`;
+      mkLine(id, cur, nn, yf.id, [pts[i], pos], false, false);
+      info.mainEls.push(id);
+      cur = nn;
+      const f = cum[i + 1] / L;
+      info.vertNodes.push({ pos, node: cur });
+      const [de, dn] = (() => { const a = pts[i], b = pos, d = dist(a, b) || 1; const m = 111320, c = Math.cos(a[0] * Math.PI / 180); return [((b[1] - a[1]) * m * c) / d, ((b[0] - a[0]) * m) / d]; })();
+      const dv = yf.devs[pid];
+      if (dv?.type === 'cap') {
+        const cp = offset(pos, -dn * 8, de * 8), cn = mkNode(cp);
+        mkDev(dv.id, cur, cn, yf.id, 'cap', dv.scada, false, cp, { loc: `Pole ${pid}` } as any);
+        info.sch.push({ kind: 'dev', id: dv.id, f, node: cur });
+      } else if (dv?.type === 'recloser') {
+        const n = dv.id.slice(2), grp = dv.id;
+        const at = (m: number) => offset(pos, de * m, dn * m);
+        const a = mkNode(at(-3)), b = mkNode(at(3)), out = mkNode(at(6));
+        mkDev(`D-${n}A`, cur, a, yf.id, 'disc', false, false, at(-4), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(dv.id, a, b, yf.id, 'recloser', dv.scada, false, pos, { grp, loc: `Pole ${pid}` } as any);
+        mkDev(`D-${n}B`, b, out, yf.id, 'disc', false, false, at(4), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(`BP-${n}`, cur, out, yf.id, 'switch', false, true, offset(pos, -dn * 6, de * 6), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open', loc: `Pole ${pid}` } as any);
+        info.sch.push({ kind: 'dev', id: dv.id, f, node: out });
+        cur = out;
+      } else if (dv) {
+        const n2 = mkNode(pos);
+        mkDev(dv.id, cur, n2, yf.id, 'switch', dv.scada, false, pos, { loc: `Pole ${pid}` } as any);
+        info.sch.push({ kind: 'dev', id: dv.id, f, node: n2 });
+        cur = n2;
+      }
+      poleNode[pid] = cur;
+      const xf = yf.xfmrs[pid];
+      if (xf) {
+        const lp = offset(pos, dn * 10, -de * 10);
+        const ld = addLoad(cur, yf.id, lp, cur, xf.critical ? 'critical' : 'com', undefined, 'Training Yard', { name: xf.name, kw: xf.kw, cust: xf.cust });
+        T.els[ld.xfmr] && ((T.els[ld.xfmr] as DevEl).loc = `Pole ${pid}`);
+        if (xf.critical) info.sch.push({ kind: 'load', id: ld.id, f, node: cur });
+      }
+    });
+    info.end = cur;
+  }
+
   // Ties: line from the 'from' feeder's end to an open tie switch at the 'to' feeder's vertex
   for (const ts of TIES) {
     const from = T.feeders[ts.from], to = T.feeders[ts.to];
@@ -319,6 +387,16 @@ export function buildTopology(): Topology {
     from.sch.push({ kind: 'tie', id: ts.id, f: 1, node: from.end });
     const tf = to.vertNodes.indexOf(target);
     to.sch.push({ kind: 'tie', id: ts.id, f: tf / Math.max(1, to.vertNodes.length - 1), node: target.node });
+  }
+  for (const yt of YARD_TIES) {
+    const from = T.feeders[yt.fromFeeder], to = T.feeders[yt.toFeeder];
+    const a = yardPos(YARD_POLES[yt.from]), b = yardPos(YARD_POLES[yt.to]);
+    const tn = mkNode(b);
+    mkLine(`${yt.id}-LN`, poleNode[yt.from], tn, yt.fromFeeder, [a, b], false, false, true);
+    mkDev(yt.id, tn, poleNode[yt.to], yt.fromFeeder, 'tie', yt.scada, true, b, { loc: `Pole ${yt.to}` } as any);
+    from.ties.push(yt.id); to.ties.push(yt.id); T.ties.push(yt.id);
+    from.sch.push({ kind: 'tie', id: yt.id, f: 1, node: poleNode[yt.from] });
+    to.sch.push({ kind: 'tie', id: yt.id, f: 1, node: poleNode[yt.to] });
   }
   for (const f of Object.values(T.feeders)) f.sch.sort((a, b) => a.f - b.f);
 

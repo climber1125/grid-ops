@@ -1,0 +1,70 @@
+rules_version = '2';
+// Sparks Command — field switching scenario (Z).
+// Paste this whole file into Firebase console → Firestore → Rules → Publish.
+//
+// The instructor password lives in config/instructor { pw: "..." }, which no
+// client can read. Starting a session writes sessions/{code} and
+// sessions/{code}/auth/key { pw } in one batch; the rule below only lets that
+// batch through when the two passwords match.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function sess(code) { return get(/databases/$(database)/documents/sessions/$(code)).data; }
+    function isOwner(code) { return signedIn() && sess(code).owner == request.auth.uid; }
+    function isOpen(code) { return exists(/databases/$(database)/documents/sessions/$(code)) && sess(code).status == 'open'; }
+    function crewUid(code, truck) { return get(/databases/$(database)/documents/sessions/$(code)/crews/$(truck)).data.uid; }
+    function crewUidAfter(code, truck) { return getAfter(/databases/$(database)/documents/sessions/$(code)/crews/$(truck)).data.uid; }
+
+    // Instructor password. Nobody reads or writes it from the app.
+    match /config/{doc} { allow read, write: if false; }
+
+    match /sessions/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && code.size() == 6
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.status == 'open'
+        && getAfter(/databases/$(database)/documents/sessions/$(code)/auth/key).data.pw
+           == get(/databases/$(database)/documents/config/instructor).data.pw;
+      allow update: if isOwner(code) && request.resource.data.owner == resource.data.owner;
+      allow delete: if false;
+
+      match /auth/{doc} {
+        allow read: if false;
+        allow create: if signedIn() && getAfter(/databases/$(database)/documents/sessions/$(code)).data.owner == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      // One doc per real crew, written by that crew's phone (re-join overwrites).
+      match /crews/{truck} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && isOpen(code)
+          && request.resource.data.uid == request.auth.uid
+          && truck.size() <= 6;
+        allow delete: if isOwner(code);
+
+        // Console → crew. Only the console writes; only that crew (or the console) reads.
+        match /inbox/{id} {
+          allow read: if isOwner(code) || (signedIn() && crewUid(code, truck) == request.auth.uid);
+          allow write: if isOwner(code);
+        }
+      }
+
+      // Crew → console. A crew can only post as its own truck. Never edited.
+      match /fromCrew/{id} {
+        allow read: if isOwner(code);
+        allow create: if signedIn() && isOpen(code)
+          && request.resource.data.uid == request.auth.uid
+          && crewUidAfter(code, request.resource.data.truck) == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      // Yard snapshot for the phone map.
+      match /public/{doc} {
+        allow read: if signedIn();
+        allow write: if isOwner(code);
+      }
+    }
+  }
+}

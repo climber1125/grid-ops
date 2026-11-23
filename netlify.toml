@@ -7,3 +7,19 @@
 
 [functions]
   directory = "netlify/functions"
+
+# Crew phone app and NFC/QR tag links open the single-page app.
+[[redirects]]
+  from = "/t/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/field"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/field/*"
+  to = "/index.html"
+  status = 200
