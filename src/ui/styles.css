@@ -482,3 +482,4 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 :root[data-theme="light"] .state.ctl { background: #d6eef5; color: #0b5566; }
 
 .yarea { font: 700 11px system-ui, sans-serif; color: #e8edf3; background: rgba(10,14,20,.7); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+.ypid { font: 600 8px ui-monospace, monospace; color: #ffe2a8; transform: translate(-50%, -150%); white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 2px #000; }

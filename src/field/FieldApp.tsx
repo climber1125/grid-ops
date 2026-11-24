@@ -316,6 +316,8 @@ function NoteCard({ onSend }: { onSend(t: string): void }) {
 
 // ── Yard map (Texas Ops layout, from texasYard.ts) ──────────
 function YardMap({ snap, me, jobs }: { snap: YardSnap | null; me: string; jobs: ToCrew[] }) {
+  const [zoom, setZoom] = useState(1);
+  const showIds = zoom >= 2;
   const pts = [...Object.values(ALL_POLES), ...YARD_AREAS.flatMap(a => a.poly)];
   const minX = Math.min(...pts.map(p => p[0])) - 12, maxX = Math.max(...pts.map(p => p[0])) + 12;
   const minY = Math.min(...pts.map(p => p[1])) - 12, maxY = Math.max(...pts.map(p => p[1])) + 12;
@@ -331,18 +333,27 @@ function YardMap({ snap, me, jobs }: { snap: YardSnap | null; me: string; jobs: 
   for (const d of DEVS) { const cur = topDevAt[d.pole]; if (!cur || d.kind === 'Recloser' || d.kind.includes('N.O.') || d.id.startsWith('CB-')) topDevAt[d.pole] = d; }
   return (
     <div className="fa-card">
-      <svg viewBox={`0 0 ${maxX - minX} ${maxY - minY}`} className="yardmap">
-        {YARD_AREAS.map(a => <polygon key={a.id} points={a.poly.map(p => `${X(p)},${Y(p)}`).join(' ')} fill={a.color} fillOpacity={0.08} stroke={a.color} strokeWidth={1.2} strokeDasharray="4 3" />)}
+      <div className="row3">
+        <button className="fa-btn ghost" onClick={() => setZoom(z => Math.max(1, z / 1.6))}>−</button>
+        <button className="fa-btn ghost" onClick={() => setZoom(1)}>Fit</button>
+        <button className="fa-btn ghost" onClick={() => setZoom(z => Math.min(6, z * 1.6))}>＋</button>
+      </div>
+      <div className="dim" style={{ fontSize: 12 }}>{showIds ? 'Pole numbers shown. Scroll to move around.' : 'Zoom in (＋) to see every pole number.'}</div>
+      <div className="yardwrap">
+      <svg viewBox={`0 0 ${maxX - minX} ${maxY - minY}`} className="yardmap" style={{ width: `${zoom * 100}%` }}>
+        {YARD_AREAS.filter(a => a.poly.length).map(a => <polygon key={a.id} points={a.poly.map(p => `${X(p)},${Y(p)}`).join(' ')} fill={a.color} fillOpacity={0.08} stroke={a.color} strokeWidth={1.2} strokeDasharray="4 3" />)}
         {segs.map(s => <line key={s.k} x1={X(s.a)} y1={Y(s.a)} x2={X(s.b)} y2={Y(s.b)} stroke={s.live === false ? '#55606e' : s.color} strokeWidth={s.live === false ? 1.5 : 2.4} strokeDasharray={s.tie || s.live === false ? '4 3' : undefined} />)}
-        {YARD_AREAS.flatMap(a => Object.entries(a.poles).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4.5 : JOB_POLES.includes(id) ? 3.4 : 2.4} fill="#e8a53a" stroke={jobPoles.has(id) ? '#58a6ff' : '#fff'} strokeWidth={jobPoles.has(id) ? 2 : 0.6} />))}
-        {Object.entries(LINE_POLES).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4 : 2.6} fill="#0d1117" stroke={jobPoles.has(id) ? '#58a6ff' : '#e8edf3'} strokeWidth={jobPoles.has(id) ? 2 : 1} />)}
+        {YARD_AREAS.flatMap(a => Object.entries(a.poles).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4 : JOB_POLES.includes(id) ? 3 : 2.2} fill={a.electric ? '#0d1117' : '#e8a53a'} stroke={jobPoles.has(id) ? '#58a6ff' : '#fff'} strokeWidth={jobPoles.has(id) ? 1.6 : a.electric ? 0.9 : 0.5} />))}
+        {Object.entries(LINE_POLES).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4 : 2.4} fill="#0d1117" stroke={jobPoles.has(id) ? '#58a6ff' : '#e8edf3'} strokeWidth={jobPoles.has(id) ? 1.6 : 0.9} />)}
+        {showIds && Object.entries(ALL_POLES).map(([id, p]) => <text key={'l' + id} x={X(p)} y={Y(p) - 3.2} className="ml pid">{id}</text>)}
         {Object.values(topDevAt).map(d => { const st = snap?.dev[d.id]; return <g key={d.id}>
           <rect x={X(d.xy) - 4} y={Y(d.xy) - 4} width={8} height={8} fill={!st ? '#666' : st.open ? '#1e8e3e' : '#d93025'} stroke="#fff" strokeWidth={1} />
           <text x={X(d.xy) + 6} y={Y(d.xy) - 5} className="ml dev">{d.id}</text>
         </g>; })}
-        {YARD_AREAS.map(a => { const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]) as XY; return <text key={a.id + 't'} x={X(c)} y={Y(c)} className="ml area">{a.name}</text>; })}
+        {YARD_AREAS.filter(a => a.poly.length).map(a => { const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]) as XY; return <text key={a.id + 't'} x={X(c)} y={Y(c)} className="ml area">{a.name}</text>; })}
         {Object.entries(crewAt).map(([k, ts]) => { const p = crewXY(k); return <text key={'c' + k} x={X(p)} y={Y(p) + 12} className={`ml crew ${ts.includes(me) ? 'me' : ''}`}>▲{ts.join(' ')}</text>; })}
       </svg>
+      </div>
       <div className="dim" style={{ fontSize: 12 }}>Squares: green = open, red = closed. Grey dashed line = out of service. Blue ring = your work order. {snap ? `Updated ${snap.clock}` : 'Waiting for the console…'}</div>
       <table className="fa-tbl"><tbody>{DEVS.map(d => { const s = snap?.dev[d.id]; return <tr key={d.id}><td className="mono">{d.id}</td><td>{d.pole}</td><td className={s ? (s.open ? 'o' : 'c') : ''}>{s ? (s.open ? 'OPEN' : 'CLOSED') : '—'}{s?.tags ? ' 🏷' : ''}</td></tr>; })}</tbody></table>
     </div>

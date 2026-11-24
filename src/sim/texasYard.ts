@@ -123,8 +123,8 @@ export const YARD_FEEDER_IDS = YARD_FEEDERS.map(f => f.id);
 export const isYardFeeder = (id: string | undefined) => !!id && YARD_FEEDER_IDS.includes(id);
 
 // ── Work areas and their poles (not electrical) ─────────────
-export type AreaKind = 'climbing' | 'distro' | 'transmission' | 'secondary' | 'urd' | 'lap' | 'equipment';
-export interface YardArea { id: string; name: string; kind: AreaKind; color: string; poly: XY[]; poles: Record<string, XY>; }
+export type AreaKind = 'climbing' | 'distro' | 'transmission' | 'secondary' | 'urd' | 'lap' | 'equipment' | 'misc';
+export interface YardArea { id: string; name: string; kind: AreaKind | 'misc'; color: string; poly: XY[]; poles: Record<string, XY>; /** poles drawn white (electrical items in Texas Ops) */ electric?: boolean; }
 
 /** A rows × cols block of poles between two corner poles. */
 function grid(prefix: string, tl: XY, br: XY, cols: number, rows: number): Record<string, XY> {
@@ -146,17 +146,17 @@ const N = ([x, y]: XY): XY => [x * 0.295 + 73.6, y * 0.295 + 20.8];
 export const YARD_AREAS: YardArea[] = [
   { id: 'A1', name: 'Climbing A1', kind: 'climbing', color: '#6fb59a', poly: [S([210, 235]), S([312, 235]), S([312, 338]), S([210, 338])], poles: grid('A1', S([225, 249]), S([297, 323]), 5, 4) },
   { id: 'A2', name: 'Climbing A2', kind: 'climbing', color: '#c98bb9', poly: [S([346, 215]), S([522, 215]), S([522, 337]), S([346, 337])], poles: grid('A2', S([361, 229]), S([505, 323]), 5, 4) },
-  { id: 'B1', name: 'Climbing B1', kind: 'climbing', color: '#e3a53c', poly: [M([82, 273]), M([184, 273]), M([184, 398]), M([82, 398])], poles: grid('B1', M([96, 288]), M([170, 383]), 5, 4) },
-  { id: 'B2', name: 'Climbing B2', kind: 'climbing', color: '#9b86d1', poly: [M([246, 278]), M([396, 278]), M([396, 405]), M([246, 405])], poles: grid('B2', M([261, 292]), M([381, 390]), 5, 4) },
+  { id: 'B1', name: 'Climbing B1', kind: 'climbing', color: '#e3a53c', poly: [M([82, 273]), M([184, 273]), M([184, 398]), M([82, 398])], poles: { ...grid('B1', M([96, 288]), M([170, 383]), 5, 4), 'B1-21': M([176, 270]), 'B1-22': M([197, 270]), 'B1-23': M([105, 405]) } },
+  { id: 'B2', name: 'Climbing B2', kind: 'climbing', color: '#9b86d1', poly: [M([246, 278]), M([396, 278]), M([396, 405]), M([246, 405])], poles: { ...grid('B2', M([261, 292]), M([381, 390]), 5, 4), 'B2-21': M([227, 328]), 'B2-22': M([225, 355]), 'B2-23': M([295, 412]), 'B2-24': M([425, 408]) } },
   { id: 'DA', name: 'Distro A', kind: 'distro', color: '#d08a5c', poly: [S([800, 258]), S([938, 258]), S([938, 407]), S([800, 407])], poles: grid('DA', S([815, 273]), S([921, 393]), 4, 5) },
-  { id: 'DB', name: 'Distro B', kind: 'distro', color: '#3fb6d3', poly: [N([480, 185]), N([605, 185]), N([605, 285]), N([480, 285])], poles: grid('DB', N([493, 200]), N([592, 270]), 5, 4) },
+  { id: 'DB', name: 'Distro B', kind: 'distro', color: '#3fb6d3', electric: true, poly: [N([480, 185]), N([605, 190]), N([605, 310]), N([478, 312])], poles: { ...grid('DB', N([493, 200]), N([592, 270]), 5, 4), ...Object.fromEntries(([[487, 300], [518, 302], [543, 301], [568, 300], [588, 298]] as XY[]).map((p, i) => [`DB-${21 + i}`, N(p)])) } },
   {
     id: 'TA', name: 'Transmission A', kind: 'transmission', color: '#8fb34e', poly: [S([148, 352]), S([532, 352]), S([520, 478]), S([128, 467])],
     poles: list('TA', [[187, 357], [247, 355], [309, 355], [375, 361], [431, 357], [471, 363], [511, 365], [143, 405], [143, 451], [237, 441], [323, 447], [417, 455], [421, 427], [469, 435], [499, 445], [503, 423]].map(p => S(p as XY))),
   },
   {
     id: 'TB', name: 'Transmission B', kind: 'transmission', color: '#4e9ad6', poly: [S([722, 416]), S([980, 416]), S([965, 533]), S([718, 533])],
-    poles: list('TB', [[745, 427], [797, 429], [851, 429], [905, 429], [959, 429], [745, 475], [823, 493], [877, 491], [943, 487], [745, 513], [821, 521], [877, 519], [943, 515]].map(p => S(p as XY))),
+    poles: list('TB', [[745, 427], [797, 429], [851, 429], [905, 429], [959, 429], [745, 475], [823, 493], [877, 491], [943, 487], [745, 513], [821, 521], [877, 519], [943, 515], [1009, 483]].map(p => S(p as XY))),
   },
   {
     id: 'SA', name: 'Secondary A', kind: 'secondary', color: '#d6c84e', poly: [S([618, 392]), S([708, 392]), S([692, 550]), S([605, 525])],
@@ -167,8 +167,9 @@ export const YARD_AREAS: YardArea[] = [
     poles: list('LC', [[765, 268], [785, 268], [765, 283], [785, 283], [771, 333], [790, 330]].map(p => N(p as XY))),
   },
   { id: 'LAP', name: 'LAP', kind: 'lap', color: '#9b86d1', poly: [N([98, 236]), N([430, 145]), N([445, 345]), N([110, 382])], poles: {} },
-  { id: 'SB', name: 'Secondary B', kind: 'secondary', color: '#3fb6d3', poly: [N([475, 437]), N([650, 437]), N([640, 565]), N([472, 565])], poles: {} },
+  { id: 'SB', name: 'Secondary B', kind: 'secondary', color: '#3fb6d3', poly: [N([475, 437]), N([650, 437]), N([640, 565]), N([472, 565])], poles: { 'SB-01': N([490, 483]), 'SB-02': N([515, 483]), 'SB-03': N([523, 455]), 'SB-04': N([540, 453]), 'SB-05': N([562, 458]) } },
   { id: 'EQ', name: 'Equipment', kind: 'equipment', color: '#6fb59a', poly: [N([630, 80]), N([930, 62]), N([950, 407]), N([632, 397])], poles: {} },
+  { id: 'YD', name: '', kind: 'misc', color: '#9aa4b2', poly: [], poles: { 'YD-01': S([720, 236]), 'YD-02': S([740, 240]), 'YD-03': S([757, 237]), 'YD-04': N([445, 265]), 'YD-05': N([740, 598]) } },
   { id: 'URD', name: 'URD', kind: 'urd', color: '#c96f6f', poly: [S([85, 481]), S([540, 500]), S([540, 578]), S([83, 578])], poles: {} },
 ];
 
