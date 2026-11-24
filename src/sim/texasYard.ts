@@ -119,7 +119,7 @@ export const YARD_TIES: { id: string; from: string; to: string; fromFeeder: stri
 ];
 
 export const YARD_SUB = { id: 'TX', name: 'TEXAS CAMPUS (TRAINING)', mva: 5 };
-export const YARD_FEEDER_IDS = YARD_FEEDERS.map(f => f.id);
+export const YARD_FEEDER_IDS = ['TX-4110', 'TX-4120'];
 export const isYardFeeder = (id: string | undefined) => !!id && YARD_FEEDER_IDS.includes(id);
 
 // ── Work areas and their poles (not electrical) ─────────────
@@ -218,3 +218,114 @@ export function yardDeviceList(): YardDevice[] {
 
 /** Legacy helper kept for callers that place things by screen units. */
 export const yardPos = (xy: XY): LatLng => yardLL(xy);
+
+// ─────────────────────────────────────────────────────────────
+// Editable yard. Everything above is the built-in starting yard.
+// The Texas Ops editor saves a YardDoc; applyYardDoc() rebuilds the
+// tables above IN PLACE before the network is built, so the console,
+// the phones and the scenario all use the edited yard.
+// ─────────────────────────────────────────────────────────────
+export interface YardDocPole { xy: XY; /** area id, or 'LINE' for a line pole */ area: string; job?: boolean; }
+export interface YardDocLink { a: string; b: string; dev?: { type: YardDevType; id: string; at: string; no?: boolean; scada?: boolean } }
+export interface YardDoc {
+  v: 1;
+  poles: Record<string, YardDocPole>;
+  links: YardDocLink[];
+  loads: Record<string, { name: string; kw: number; critical?: boolean }>;
+  sources: { 'TX-4110': string; 'TX-4120': string };
+  updatedAt?: string;
+}
+
+const BASE: YardDoc = (() => {
+  const poles: Record<string, YardDocPole> = {};
+  for (const [id, xy] of Object.entries(LINE_POLES)) poles[id] = { xy: [...xy] as XY, area: 'LINE' };
+  for (const a of YARD_AREAS) for (const [id, xy] of Object.entries(a.poles)) poles[id] = { xy: [...xy] as XY, area: a.id };
+  for (const id of JOB_POLES) if (poles[id]) poles[id].job = true;
+  const links: YardDocLink[] = [];
+  const loads: YardDoc['loads'] = {};
+  for (const f of YARD_FEEDERS) {
+    for (const [a, b] of f.spans) {
+      const d = f.devs[b];
+      links.push({ a, b, ...(d ? { dev: { type: d.type, id: d.id, at: b, ...(d.scada ? { scada: true } : {}) } } : {}) });
+    }
+    for (const [p, x] of Object.entries(f.xfmrs)) loads[p] = { name: x.name, kw: x.kw, ...(x.critical ? { critical: true } : {}) };
+  }
+  for (const t of YARD_TIES) links.push({ a: t.from, b: t.to, dev: { type: 'switch', id: t.id, at: t.to, no: true } });
+  return { v: 1, poles, links, loads, sources: { 'TX-4110': YARD_FEEDERS[0].source, 'TX-4120': YARD_FEEDERS[1].source } };
+})();
+const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+export const defaultYardDoc = (): YardDoc => clone(BASE);
+let CURRENT: YardDoc = defaultYardDoc();
+export const currentYardDoc = (): YardDoc => clone(CURRENT);
+export let yardEdited = false;
+
+const FEEDER_META: Record<string, { name: string; color: string }> = {
+  'TX-4110': { name: 'Source 1 — LAP / perimeter', color: '#3b9ae1' },
+  'TX-4120': { name: 'Source 2 — URD', color: '#c58be0' },
+};
+
+/** Check a doc before saving: returns problems (empty = good). */
+export function checkYardDoc(d: YardDoc): string[] {
+  const out: string[] = [];
+  for (const [fid, src] of Object.entries(d.sources)) if (!d.poles[src] || d.poles[src].area !== 'LINE') out.push(`${fid} source ${src} must be a line pole`);
+  const ids = new Set<string>();
+  for (const l of d.links) {
+    if (!d.poles[l.a] || !d.poles[l.b]) out.push(`Span ${l.a}–${l.b} has a missing pole`);
+    if (d.poles[l.a]?.area !== 'LINE' || d.poles[l.b]?.area !== 'LINE') out.push(`Span ${l.a}–${l.b}: spans only run between line poles`);
+    if (l.dev) { if (ids.has(l.dev.id)) out.push(`Device id ${l.dev.id} is used twice`); ids.add(l.dev.id); }
+  }
+  for (const fid of Object.keys(d.sources)) for (const k of ['CB-', 'D-']) { const id = k === 'CB-' ? `CB-${fid.slice(3)}` : `D-${fid.slice(3)}L`; if (ids.has(id)) out.push(`${id} is reserved for the source`); }
+  return out;
+}
+
+/** Rebuild LINE_POLES, YARD_FEEDERS, YARD_TIES, area poles, ALL_POLES and JOB_POLES from a doc. */
+export function applyYardDoc(doc: YardDoc, edited = true) {
+  const d = clone(doc);
+  if (checkYardDoc(d).length) return false;
+  CURRENT = d; yardEdited = edited;
+  const clear = (o: Record<string, unknown>) => { for (const k of Object.keys(o)) delete o[k]; };
+  clear(LINE_POLES); clear(ALL_POLES);
+  for (const a of YARD_AREAS) clear(a.poles);
+  JOB_POLES.length = 0;
+  for (const [id, p] of Object.entries(d.poles)) {
+    ALL_POLES[id] = p.xy;
+    if (p.area === 'LINE') LINE_POLES[id] = p.xy;
+    else (YARD_AREAS.find(a => a.id === p.area) ?? YARD_AREAS.find(a => a.id === 'YD')!).poles[id] = p.xy;
+    if (p.job) JOB_POLES.push(id);
+  }
+  // Walk out from each source over closed spans; N.O. spans become ties.
+  const adj: Record<string, YardDocLink[]> = {};
+  for (const l of d.links) if (LINE_POLES[l.a] && LINE_POLES[l.b]) { (adj[l.a] ??= []).push(l); (adj[l.b] ??= []).push(l); }
+  const owner: Record<string, string> = {};
+  const feeders: YardFeeder[] = [];
+  for (const [fid, src] of Object.entries(d.sources)) {
+    const f: YardFeeder = { id: fid, ...FEEDER_META[fid], ratingA: 200, source: src, spans: [], devs: {}, xfmrs: {} };
+    owner[src] = fid;
+    const q = [src];
+    while (q.length) {
+      const p = q.shift()!;
+      for (const l of adj[p] ?? []) {
+        if (l.dev?.no) continue;
+        const o = l.a === p ? l.b : l.a;
+        if (owner[o]) continue;
+        owner[o] = fid; q.push(o);
+        f.spans.push([p, o]);
+        if (l.dev) f.devs[o] = { type: l.dev.type, id: l.dev.id, scada: !!l.dev.scada };
+      }
+    }
+    feeders.push(f);
+  }
+  for (const [pole, ld] of Object.entries(d.loads)) { const fid = owner[pole]; const f = feeders.find(x => x.id === fid); if (f) f.xfmrs[pole] = { name: ld.name, kw: ld.kw, cust: 1, ...(ld.critical ? { critical: true } : {}) }; }
+  YARD_FEEDERS.splice(0, YARD_FEEDERS.length, ...feeders);
+  const ties = d.links.filter(l => l.dev?.no && owner[l.a] && owner[l.b]).map(l => {
+    const to = l.dev!.at === l.a ? l.a : l.b, from = to === l.a ? l.b : l.a;
+    return { id: l.dev!.id, from, to, fromFeeder: owner[from], toFeeder: owner[to], scada: !!l.dev!.scada, name: 'Normally open point (N.O.)' };
+  });
+  YARD_TIES.splice(0, YARD_TIES.length, ...ties);
+  return true;
+}
+/** Which feeder (if any) a line pole is fed from in the current yard. */
+export function poleFeeder(id: string): string | null {
+  for (const f of YARD_FEEDERS) if (f.source === id || f.spans.some(s => s[1] === id)) return f.id;
+  return null;
+}

@@ -13,7 +13,7 @@ export interface Ctx {
   setSel(s: Sel): void;
   openSbo(r: SboReq): void;
   flyTo(pos: LatLng, zoom?: number): void;
-  setTab(t: 'gis' | 'scada' | 'sw'): void;
+  setTab(t: 'gis' | 'scada' | 'sw' | 'tx'): void;
   swPrefill: { dev: string; action: 'open' | 'close' } | null;
   setSwPrefill(p: { dev: string; action: 'open' | 'close' } | null): void;
   flash(text: string, level?: 'info' | 'warn' | 'alarm' | 'good'): void;

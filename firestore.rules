@@ -19,6 +19,23 @@ service cloud.firestore {
     // Instructor password. Nobody reads or writes it from the app.
     match /config/{doc} { allow read, write: if false; }
 
+    // Texas yard map (edited in the console's Texas Ops view). Anyone can read it.
+    // Saving writes yard/current and yard/current/auth/key { pw, nonce } together; the
+    // password must match and the nonce must be new, so an old save can't be replayed.
+    match /yard/current {
+      allow read: if true;
+      allow create, update: if signedIn()
+        && getAfter(/databases/$(database)/documents/yard/current/auth/key).data.pw
+           == get(/databases/$(database)/documents/config/instructor).data.pw
+        && request.resource.data.nonce == getAfter(/databases/$(database)/documents/yard/current/auth/key).data.nonce
+        && (resource == null || request.resource.data.nonce != resource.data.nonce);
+      allow delete: if false;
+      match /auth/{doc} {
+        allow read: if false;
+        allow write: if signedIn();
+      }
+    }
+
     match /sessions/{code} {
       allow read: if signedIn();
       allow create: if signedIn()

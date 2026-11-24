@@ -27,7 +27,7 @@ export const FIREBASE_CONFIG = {
   appId: '1:908623663663:web:ff0ae917ac71b43dca2cda',
 };
 
-export type YardSnap = { dev: Record<string, { open: boolean; tags: number; ctl?: string }>; live: Record<string, boolean>; t: number; clock: string; trucks?: Record<string, { status: string; at: string; dest?: string }> };
+export type YardSnap = { dev: Record<string, { open: boolean; tags: number; ctl?: string }>; live: Record<string, boolean>; spans?: Record<string, boolean>; t: number; clock: string; trucks?: Record<string, { status: string; at: string; dest?: string }> };
 export interface CrewInfo { truck: string; foreman: string; members: string[]; t: number; }
 type Unsub = () => void;
 

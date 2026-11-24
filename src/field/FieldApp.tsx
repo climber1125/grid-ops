@@ -8,13 +8,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import type { FieldStatus, FromCrew, SwAction, ToCrew } from '../sim/types';
 import {
-  YARD_FEEDERS, YARD_TIES, YARD_AREAS, LINE_POLES, ALL_POLES, JOB_POLES, YARD_PARKING,
-  yardDeviceList, areaOfPole, isLinePole, type YardDevice,
+  YARD_FEEDERS, LINE_POLES, ALL_POLES, JOB_POLES,
+  yardDeviceList, areaOfPole, isLinePole, currentYardDoc, type YardDevice,
 } from '../sim/texasYard';
+import { YardSvg } from './YardSvg';
 import { cleanCode, getBackend, useLocalBackend, type YardSnap } from './backend';
 import './field.css';
 
-type XY = [number, number];
 const DEVS = yardDeviceList();
 const DEV = Object.fromEntries(DEVS.map(d => [d.id, d])) as Record<string, YardDevice>;
 const ACT: Record<SwAction, string> = { open: 'OPEN', close: 'CLOSE', manual: 'SET TO MANUAL', auto: 'SET TO AUTO', neutral: 'SET TO NEUTRAL', 'nr-on': 'NON-RECLOSE ON', 'nr-off': 'NON-RECLOSE OFF' } as Record<SwAction, string>;
@@ -314,47 +314,14 @@ function NoteCard({ onSend }: { onSend(t: string): void }) {
   return <div className="fa-card"><div className="row2"><input placeholder="Short note to the operator" value={t} onChange={e => setT(e.target.value)} /><button className="fa-btn" disabled={!t.trim()} onClick={() => { onSend(t.trim()); setT(''); }}>Send</button></div></div>;
 }
 
-// ── Yard map (Texas Ops layout, from texasYard.ts) ──────────
+// ── Yard map (Texas Ops layout) ─────────────────────────────
 function YardMap({ snap, me, jobs }: { snap: YardSnap | null; me: string; jobs: ToCrew[] }) {
-  const [zoom, setZoom] = useState(1);
-  const showIds = zoom >= 2;
-  const pts = [...Object.values(ALL_POLES), ...YARD_AREAS.flatMap(a => a.poly)];
-  const minX = Math.min(...pts.map(p => p[0])) - 12, maxX = Math.max(...pts.map(p => p[0])) + 12;
-  const minY = Math.min(...pts.map(p => p[1])) - 12, maxY = Math.max(...pts.map(p => p[1])) + 12;
-  const X = (p: XY) => p[0] - minX, Y = (p: XY) => p[1] - minY;
-  const segs: { k: string; a: XY; b: XY; live: boolean | undefined; color: string; tie?: boolean }[] = [];
-  for (const f of YARD_FEEDERS) f.spans.forEach(([a, b], i) => { const k = `${f.id}-M${String(i + 1).padStart(2, '0')}`; segs.push({ k, a: LINE_POLES[a], b: LINE_POLES[b], live: snap?.live[k], color: f.color }); });
-  for (const t of YARD_TIES) segs.push({ k: t.id, a: LINE_POLES[t.from], b: LINE_POLES[t.to], live: snap ? !!snap.dev[t.id] && !snap.dev[t.id].open : undefined, color: '#9aa4b2', tie: true });
-  const jobPoles = new Set(jobs.map(j => j.pole));
-  const crewAt: Record<string, string[]> = {};
-  for (const [t, c] of Object.entries(snap?.trucks ?? {})) { const k = c.at === 'yard' ? 'YARD' : c.at; (crewAt[k] ??= []).push(t); }
-  const crewXY = (k: string): XY => (k === 'YARD' ? YARD_PARKING : DEV[k] ? DEV[k].xy : ALL_POLES[k] ?? YARD_PARKING);
-  const topDevAt: Record<string, YardDevice> = {};
-  for (const d of DEVS) { const cur = topDevAt[d.pole]; if (!cur || d.kind === 'Recloser' || d.kind.includes('N.O.') || d.id.startsWith('CB-')) topDevAt[d.pole] = d; }
+  const doc = useMemo(() => currentYardDoc(), []);
+  const hi = useMemo(() => new Set(jobs.map(j => j.pole!).filter(Boolean)), [jobs]);
   return (
     <div className="fa-card">
-      <div className="row3">
-        <button className="fa-btn ghost" onClick={() => setZoom(z => Math.max(1, z / 1.6))}>−</button>
-        <button className="fa-btn ghost" onClick={() => setZoom(1)}>Fit</button>
-        <button className="fa-btn ghost" onClick={() => setZoom(z => Math.min(6, z * 1.6))}>＋</button>
-      </div>
-      <div className="dim" style={{ fontSize: 12 }}>{showIds ? 'Pole numbers shown. Scroll to move around.' : 'Zoom in (＋) to see every pole number.'}</div>
-      <div className="yardwrap">
-      <svg viewBox={`0 0 ${maxX - minX} ${maxY - minY}`} className="yardmap" style={{ width: `${zoom * 100}%` }}>
-        {YARD_AREAS.filter(a => a.poly.length).map(a => <polygon key={a.id} points={a.poly.map(p => `${X(p)},${Y(p)}`).join(' ')} fill={a.color} fillOpacity={0.08} stroke={a.color} strokeWidth={1.2} strokeDasharray="4 3" />)}
-        {segs.map(s => <line key={s.k} x1={X(s.a)} y1={Y(s.a)} x2={X(s.b)} y2={Y(s.b)} stroke={s.live === false ? '#55606e' : s.color} strokeWidth={s.live === false ? 1.5 : 2.4} strokeDasharray={s.tie || s.live === false ? '4 3' : undefined} />)}
-        {YARD_AREAS.flatMap(a => Object.entries(a.poles).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4 : JOB_POLES.includes(id) ? 3 : 2.2} fill={a.electric ? '#0d1117' : '#e8a53a'} stroke={jobPoles.has(id) ? '#58a6ff' : '#fff'} strokeWidth={jobPoles.has(id) ? 1.6 : a.electric ? 0.9 : 0.5} />))}
-        {Object.entries(LINE_POLES).map(([id, p]) => <circle key={id} cx={X(p)} cy={Y(p)} r={jobPoles.has(id) ? 4 : 2.4} fill="#0d1117" stroke={jobPoles.has(id) ? '#58a6ff' : '#e8edf3'} strokeWidth={jobPoles.has(id) ? 1.6 : 0.9} />)}
-        {showIds && Object.entries(ALL_POLES).map(([id, p]) => <text key={'l' + id} x={X(p)} y={Y(p) - 3.2} className="ml pid">{id}</text>)}
-        {Object.values(topDevAt).map(d => { const st = snap?.dev[d.id]; return <g key={d.id}>
-          <rect x={X(d.xy) - 4} y={Y(d.xy) - 4} width={8} height={8} fill={!st ? '#666' : st.open ? '#1e8e3e' : '#d93025'} stroke="#fff" strokeWidth={1} />
-          <text x={X(d.xy) + 6} y={Y(d.xy) - 5} className="ml dev">{d.id}</text>
-        </g>; })}
-        {YARD_AREAS.filter(a => a.poly.length).map(a => { const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]) as XY; return <text key={a.id + 't'} x={X(c)} y={Y(c)} className="ml area">{a.name}</text>; })}
-        {Object.entries(crewAt).map(([k, ts]) => { const p = crewXY(k); return <text key={'c' + k} x={X(p)} y={Y(p) + 12} className={`ml crew ${ts.includes(me) ? 'me' : ''}`}>▲{ts.join(' ')}</text>; })}
-      </svg>
-      </div>
-      <div className="dim" style={{ fontSize: 12 }}>Squares: green = open, red = closed. Grey dashed line = out of service. Blue ring = your work order. {snap ? `Updated ${snap.clock}` : 'Waiting for the console…'}</div>
+      <YardSvg doc={doc} snap={snap} me={me} highlight={hi} height="62vh" labelPx={11} minLabelZoom={2.2} />
+      <div className="dim" style={{ fontSize: 12 }}>Drag to move, pinch or ＋ to zoom. Squares: green = open, red = closed. Grey dashed = out of service. Blue ring = your work order. {snap ? `Updated ${snap.clock}` : 'Waiting for the console…'}</div>
       <table className="fa-tbl"><tbody>{DEVS.map(d => { const s = snap?.dev[d.id]; return <tr key={d.id}><td className="mono">{d.id}</td><td>{d.pole}</td><td className={s ? (s.open ? 'o' : 'c') : ''}>{s ? (s.open ? 'OPEN' : 'CLOSED') : '—'}{s?.tags ? ' 🏷' : ''}</td></tr>; })}</tbody></table>
     </div>
   );

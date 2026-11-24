@@ -341,8 +341,14 @@ export function yardSnapshot(e: Engine) {
     dev[id] = { open: s.open, tags: s.tags.length, ...(s.ctl ? { ctl: s.ctl } : {}) };
   }
   const live: Record<string, boolean> = {};
-  for (const id of e.T.feederIds) if (id.startsWith('TX')) for (const el of e.T.feeders[id].mainEls) live[el] = e.net.en.has((e.T.els[el] as LineEl).to);
+  const spans: Record<string, boolean> = {};
+  for (const id of e.T.feederIds) if (id.startsWith('TX')) for (const el of e.T.feeders[id].mainEls) {
+    const L = e.T.els[el] as LineEl & { loc?: string };
+    live[el] = e.net.en.has(L.to);
+    const m = L.loc?.match(/^Span (\S+)–(\S+)$/);
+    if (m) spans[[m[1], m[2]].sort().join('|')] = live[el];
+  }
   const trucks: Record<string, { status: string; at: string; dest?: string }> = {};
   for (const tr of Object.values(e.s.trucks)) if (tr.field) trucks[tr.id] = { status: tr.field.status, at: tr.field.at, ...(tr.field.dest ? { dest: tr.field.dest } : {}) };
-  return { dev, live, t: e.s.t, clock: e.hhmm(), trucks };
+  return { dev, live, spans, t: e.s.t, clock: e.hhmm(), trucks };
 }

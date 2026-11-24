@@ -19,7 +19,7 @@ function QrImg({ text, size = 120 }: { text: string; size?: number }) {
 }
 
 export function FieldPanel() {
-  const { e, flash, flyTo, fieldLink, setSel } = useCtx();
+  const { e, flash, flyTo, fieldLink, setSel, setTab } = useCtx();
   const f = e.s.field;
   const crews = Object.values(e.s.trucks).filter(t => t.field).sort((a, b) => a.id.localeCompare(b.id));
   const yardDevs = e.T.devIds.filter(id => { const d = e.T.els[id] as DevEl; return d.feeder?.startsWith('TX') && d.type !== 'xfmr'; });
@@ -46,7 +46,8 @@ export function FieldPanel() {
           <div className="mono dim" style={{ fontSize: 10 }}>{url.replace(/^https?:\/\//, '')}</div>
           <div style={{ fontSize: 11, marginTop: 4 }} className={fieldLink && !fieldLink.ok ? 'c-red' : 'c-green'}>● {linkTxt}</div>
           <div className="acts" style={{ marginTop: 4 }}>
-            <button className="btn sm" onClick={() => flyTo(YARD_HOME, 18)}>Texas Campus on map</button>
+            <button className="btn sm" onClick={() => setTab('tx')}>Texas Ops view</button>
+            <button className="btn sm" onClick={() => flyTo(YARD_HOME, 18)}>Yard on GIS</button>
             <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(url); flash('Join link copied'); }}>Copy link</button>
             <a className="btn sm" href={`/field/tags?code=${f.code}${f.backend === 'local' ? '&fieldlocal=1' : ''}`} target="_blank" rel="noreferrer">Tag labels…</a>
           </div>

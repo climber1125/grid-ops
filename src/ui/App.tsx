@@ -24,6 +24,7 @@ import { LOCKED_SCENARIOS } from '../sim/scenarios';
 import { fieldInit } from '../sim/field';
 import { getBackend, newCode } from '../field/backend';
 import { useFieldLink } from '../field/useFieldLink';
+import { TexasOpsView } from './TexasOps';
 
 const urlParams = new URLSearchParams(window.location.search);
 const urlExercise = urlParams.get('ex') ? decodeExercise(urlParams.get('ex')!) : null;
@@ -35,8 +36,8 @@ import { openChannel, remoteEngine, initialView, viewUrl, VIEWS, WIN_ID, type Ms
 import type { LatLng } from '../sim/types';
 
 interface Toast { id: number; text: string; level: string; t: string; born: number; }
-type Tab = 'gis' | 'scada' | 'sw';
-type Mon = 'gis' | 'scada' | 'sw' | 'oms' | 'radio' | 'crew' | 'alarms';
+type Tab = 'gis' | 'scada' | 'sw' | 'tx';
+type Mon = 'gis' | 'scada' | 'sw' | 'tx' | 'oms' | 'radio' | 'crew' | 'alarms';
 type Role = 'pending' | 'master' | 'replica';
 type Theme = 'dark' | 'light';
 interface Peer { view: View; master: boolean; t: number; }
@@ -83,14 +84,14 @@ export default function App() {
   const setView = (v: View) => {
     setViewRaw(v);
     setTheme(loadTheme(v));
-    if (v === 'gis' || v === 'scada' || v === 'sw') setTabRaw(v);
+    if (v === 'gis' || v === 'scada' || v === 'sw' || v === 'tx') setTabRaw(v);
     try { history.replaceState(null, '', viewUrl(v)); } catch { /* file:// quirks */ }
     post({ type: 'hello', from: WIN_ID, view: v, master: roleRef.current === 'master' });
   };
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   const toggleTheme = () => { const t: Theme = theme === 'dark' ? 'light' : 'dark'; setTheme(t); try { localStorage.setItem(themeKey(view), t); } catch { /* none */ } };
 
-  const [tab, setTabRaw] = useState<Tab>(() => (['gis', 'scada', 'sw'].includes(initialView()) ? initialView() as Tab : 'gis'));
+  const [tab, setTabRaw] = useState<Tab>(() => (['gis', 'scada', 'sw', 'tx'].includes(initialView()) ? initialView() as Tab : 'gis'));
   const [mon, setMon] = useState<Mon>('gis');
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1280);
   const [focus, setFocus] = useState(false);
@@ -344,7 +345,7 @@ export default function App() {
     if (viewRef.current === t) return;
     const peer = peerShowing(t);
     if (peer) { post({ type: 'goto', to: peer, tab: t, prefill: prefillRef.current }); prefillRef.current = null; setSwPrefillState(null); return; }
-    if (viewRef.current === 'gis' || viewRef.current === 'scada' || viewRef.current === 'sw') setView(t);
+    if (viewRef.current === 'gis' || viewRef.current === 'scada' || viewRef.current === 'sw' || viewRef.current === 'tx') setView(t);
     else window.open(viewUrl(t), `gridops-${t}-${Date.now()}`, 'popup,width=1400,height=900');
   };
   // ── Push-to-talk ───────────────────────────────────────────
@@ -465,8 +466,8 @@ export default function App() {
   const emgActive = (s.scen.flags.emT !== undefined && s.scen.flags.confT === undefined) || (!!s.scen.flags.cdUnit && !s.scen.flags.cdDone);
   const compact = view === 'all' && narrow;
   const wsCls = view === 'all' ? `ws ${compact ? 'compact' : ''} ${focus && !narrow ? 'focus' : ''}` : `ws single v-${view}`;
-  const showMain = view === 'all' || view === 'gis' || view === 'scada' || view === 'sw';
-  const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' ? view : tab;
+  const showMain = view === 'all' || view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx';
+  const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx' ? view : tab;
   const pickTab = (t: Tab) => (view === 'all' ? (setTabRaw(t), setMon(t)) : setView(t));
 
   const radio = <RadioPanel keyed={keyed} voiceOn={voiceOn} setVoiceOn={setVoiceOn} audioOn={audioOn && isMaster} talkBack={talkBack} setTalkBack={setTalkBack} aiAvail={aiAvail} aiOn={aiOn} setAiOn={setAiOn} />;
@@ -529,6 +530,7 @@ export default function App() {
               <div className="tabs">
                 <button className={`tab ${curTab === 'gis' ? 'on' : ''}`} onClick={() => pickTab('gis')}>M1 · GIS / System map</button>
                 <button className={`tab ${curTab === 'scada' ? 'on' : ''}`} onClick={() => pickTab('scada')}>M2 · SCADA{s.alarms.some(a => !a.acked && a.pri === 1) ? <span className="badge red">!</span> : null}</button>
+                <button className={`tab ${curTab === 'tx' ? 'on' : ''}`} onClick={() => pickTab('tx')}>Texas Ops</button>
                 <button className={`tab ${curTab === 'sw' ? 'on' : ''}`} onClick={() => pickTab('sw')}>Switching &amp; clearances{s.requests.some(r => r.status === 'Pending' && (r.type === 'clearance' || r.type === 'release')) ? <span className="badge amber">!</span> : null}</button>
               </div>
               <span className="sp" />
@@ -538,6 +540,7 @@ export default function App() {
               <GisMap visible={mapVisible} apiRef={mapApi} />
               {curTab === 'scada' && <div style={{ position: 'absolute', inset: 0 }}><ScadaView /></div>}
               {curTab === 'sw' && <div style={{ position: 'absolute', inset: 0 }}><SwitchingView /></div>}
+              {curTab === 'tx' && <div style={{ position: 'absolute', inset: 0 }}><TexasOpsView /></div>}
               {curTab !== 'sw' && <Inspector />}
               {curTab === 'gis' && (
                 <div className="objbar">
