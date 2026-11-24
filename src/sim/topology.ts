@@ -8,7 +8,7 @@ import { cumLen, pointAt, dirAt, subPath, offset, dist } from './geo';
 import { RNG } from './rng';
 import { nearestName, zoneAt } from './roads';
 import { solve } from './network';
-import { YARD_SUB, YARD_POLES, YARD_FEEDERS, YARD_TIES, yardPos } from './texasYard';
+import { YARD_SUB, LINE_POLES, YARD_FEEDERS, YARD_TIES, yardLL } from './texasYard';
 
 interface DevSpec { f: number; type: 'recloser' | 'switch' | 'regulator' | 'cap'; id: string; scada: boolean; }
 interface CritSpec { f: number; side: 1 | -1; name: string; cls: LoadClass; kw: number; cust: number; }
@@ -178,8 +178,8 @@ export function buildTopology(): Topology {
     T.subs[s.id] = { id: s.id, name: s.name, pos: s.pos, bus, mva: s.mva, feeders: [] };
   }
   {
-    const p = yardPos(YARD_SUB.at);
-    T.subs[YARD_SUB.id] = { id: YARD_SUB.id, name: YARD_SUB.name, pos: yardPos([YARD_SUB.at[0] - 40, YARD_SUB.at[1] - 40]), bus: mkNode(p), mva: YARD_SUB.mva, feeders: [] };
+    const p = yardLL(LINE_POLES[YARD_FEEDERS[0].source]);
+    T.subs[YARD_SUB.id] = { id: YARD_SUB.id, name: YARD_SUB.name, pos: offset(p, -12, -12), bus: mkNode(p), mva: YARD_SUB.mva, feeders: [] };
   }
 
   for (const fs of FEEDERS) {
@@ -312,49 +312,51 @@ export function buildTopology(): Topology {
     info.end = cur;
   }
 
-  // ── Texas campus training yard: poles, spans and devices laid out by hand (texasYard.ts) ──
+  // ── Texas campus training yard: poles, spans and devices traced from Texas Ops (texasYard.ts) ──
   const poleNode: Record<string, string> = {};
   for (const yf of YARD_FEEDERS) {
     const num = yf.id.slice(3);
     const sub = T.subs[YARD_SUB.id];
     sub.feeders.push(yf.id);
-    const pts = [yardPos(YARD_SUB.at), ...yf.route.map(pid => yardPos(YARD_POLES[pid]))];
-    const cum = cumLen(pts);
-    const L = cum[cum.length - 1];
+    const P = (id: string) => yardLL(LINE_POLES[id]);
+    // distance from the source along the tree, for one-line ordering
+    const dAt: Record<string, number> = { [yf.source]: 0 };
+    for (const [a, b] of yf.spans) dAt[b] = (dAt[a] ?? 0) + dist(P(a), P(b));
+    const L = Math.max(1, ...Object.values(dAt));
     const info: FeederInfo = {
       id: yf.id, sub: YARD_SUB.id, color: yf.color, ratingA: yf.ratingA, length: L, breaker: 'CB-' + num,
       mainEls: [], end: '', sch: [], vertNodes: [], ties: [],
     };
     T.feeders[yf.id] = info; T.feederIds.push(yf.id);
-    const nb = mkNode(pts[0]), n0 = mkNode(pts[0]);
-    mkDev(info.breaker, sub.bus, nb, yf.id, 'breaker', true, false, pts[0], { loc: 'Texas Campus Sub' });
-    mkDev(`D-${num}L`, nb, n0, yf.id, 'disc', false, false, pts[0], { vis: info.breaker, loc: 'Texas Campus Sub', equip: 'Feeder getaway disconnect (gang-operated), NON-load-break — visible open for the breaker' });
+    const p0 = P(yf.source);
+    const nb = mkNode(p0), n0 = mkNode(p0);
+    mkDev(info.breaker, sub.bus, nb, yf.id, 'breaker', true, false, p0, { loc: `${yf.name.split(' — ')[0]} (pole ${yf.source})` });
+    mkDev(`D-${num}L`, nb, n0, yf.id, 'disc', false, false, p0, { vis: info.breaker, loc: `${yf.name.split(' — ')[0]} (pole ${yf.source})`, equip: 'Source disconnect (gang-operated), NON-load-break — visible open for the breaker' });
     info.sch.push({ kind: 'dev', id: info.breaker, f: 0, node: n0 });
-    info.vertNodes.push({ pos: pts[0], node: n0 });
-    let cur = n0, seq = 0;
-    yf.route.forEach((pid, i) => {
-      const pos = pts[i + 1];
+    info.vertNodes.push({ pos: p0, node: n0 });
+    poleNode[yf.source] = n0;
+    let seq = 0, far = yf.source;
+    for (const [from, pid] of yf.spans) {
+      const a = P(from), pos = P(pid);
+      let cur = poleNode[from];
       const nn = mkNode(pos);
       const id = `${yf.id}-M${String(++seq).padStart(2, '0')}`;
-      mkLine(id, cur, nn, yf.id, [pts[i], pos], false, false);
+      mkLine(id, cur, nn, yf.id, [a, pos], false, false);
+      (T.els[id] as LineEl & { loc?: string }).loc = `Span ${from}–${pid}`;
       info.mainEls.push(id);
       cur = nn;
-      const f = cum[i + 1] / L;
-      info.vertNodes.push({ pos, node: cur });
-      const [de, dn] = (() => { const a = pts[i], b = pos, d = dist(a, b) || 1; const m = 111320, c = Math.cos(a[0] * Math.PI / 180); return [((b[1] - a[1]) * m * c) / d, ((b[0] - a[0]) * m) / d]; })();
+      const f = dAt[pid] / L;
+      if (dAt[pid] > dAt[far]) far = pid;
+      const [de, dn] = (() => { const d = dist(a, pos) || 1; const m = 111320, c = Math.cos(a[0] * Math.PI / 180); return [((pos[1] - a[1]) * m * c) / d, ((pos[0] - a[0]) * m) / d]; })();
       const dv = yf.devs[pid];
-      if (dv?.type === 'cap') {
-        const cp = offset(pos, -dn * 8, de * 8), cn = mkNode(cp);
-        mkDev(dv.id, cur, cn, yf.id, 'cap', dv.scada, false, cp, { loc: `Pole ${pid}` } as any);
-        info.sch.push({ kind: 'dev', id: dv.id, f, node: cur });
-      } else if (dv?.type === 'recloser') {
+      if (dv?.type === 'recloser') {
         const n = dv.id.slice(2), grp = dv.id;
         const at = (m: number) => offset(pos, de * m, dn * m);
-        const a = mkNode(at(-3)), b = mkNode(at(3)), out = mkNode(at(6));
-        mkDev(`D-${n}A`, cur, a, yf.id, 'disc', false, false, at(-4), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
-        mkDev(dv.id, a, b, yf.id, 'recloser', dv.scada, false, pos, { grp, loc: `Pole ${pid}` } as any);
-        mkDev(`D-${n}B`, b, out, yf.id, 'disc', false, false, at(4), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
-        mkDev(`BP-${n}`, cur, out, yf.id, 'switch', false, true, offset(pos, -dn * 6, de * 6), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open', loc: `Pole ${pid}` } as any);
+        const ra = mkNode(at(-1.5)), rb = mkNode(at(1.5)), out = mkNode(pos);
+        mkDev(`D-${n}A`, cur, ra, yf.id, 'disc', false, false, at(-2), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(dv.id, ra, rb, yf.id, 'recloser', dv.scada, false, pos, { grp, loc: `Pole ${pid}` } as any);
+        mkDev(`D-${n}B`, rb, out, yf.id, 'disc', false, false, at(2), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(`BP-${n}`, cur, out, yf.id, 'switch', false, true, offset(pos, -dn * 3, de * 3), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open', loc: `Pole ${pid}` } as any);
         info.sch.push({ kind: 'dev', id: dv.id, f, node: out });
         cur = out;
       } else if (dv) {
@@ -364,15 +366,16 @@ export function buildTopology(): Topology {
         cur = n2;
       }
       poleNode[pid] = cur;
+      info.vertNodes.push({ pos, node: cur });
       const xf = yf.xfmrs[pid];
       if (xf) {
-        const lp = offset(pos, dn * 10, -de * 10);
+        const lp = offset(pos, dn * 5, -de * 5);
         const ld = addLoad(cur, yf.id, lp, cur, xf.critical ? 'critical' : 'com', undefined, 'Training Yard', { name: xf.name, kw: xf.kw, cust: xf.cust });
         T.els[ld.xfmr] && ((T.els[ld.xfmr] as DevEl).loc = `Pole ${pid}`);
         if (xf.critical) info.sch.push({ kind: 'load', id: ld.id, f, node: cur });
       }
-    });
-    info.end = cur;
+    }
+    info.end = poleNode[far];
   }
 
   // Ties: line from the 'from' feeder's end to an open tie switch at the 'to' feeder's vertex
@@ -390,7 +393,7 @@ export function buildTopology(): Topology {
   }
   for (const yt of YARD_TIES) {
     const from = T.feeders[yt.fromFeeder], to = T.feeders[yt.toFeeder];
-    const a = yardPos(YARD_POLES[yt.from]), b = yardPos(YARD_POLES[yt.to]);
+    const a = yardLL(LINE_POLES[yt.from]), b = yardLL(LINE_POLES[yt.to]);
     const tn = mkNode(b);
     mkLine(`${yt.id}-LN`, poleNode[yt.from], tn, yt.fromFeeder, [a, b], false, false, true);
     mkDev(yt.id, tn, poleNode[yt.to], yt.fromFeeder, 'tie', yt.scada, true, b, { loc: `Pole ${yt.to}` } as any);

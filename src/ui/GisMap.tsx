@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import { useCtx, type Sel } from './ctx';
 import { ROADS, ZONES, CREEK, localStreets } from '../sim/roads';
 import { SUB_SPECS } from '../sim/topology';
+import { YARD_AREAS, yardLL, JOB_POLES } from '../sim/texasYard';
 import type { DevEl, LineEl, LatLng } from '../sim/types';
 import type { Engine } from '../sim/engine';
 
@@ -70,6 +71,18 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       for (const f of spots) {
         const p: LatLng = r.pts.length > 2 ? r.pts[Math.floor(f * (r.pts.length - 1))] : [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
         L.marker(p, { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="rlabel ${ns ? 'ns' : ''} ${r.cls === 'hwy' ? 'hwy' : ''}" style="transform:translate(${ns ? '4px,-50%' : '-50%,-120%'})">${r.name}</div>`, iconSize: [0, 0] }) }).addTo(roadLabels);
+      }
+    }
+
+    // NLC Texas yard: work areas and their poles (Texas Ops look), shown when zoomed in
+    const yardGroup = L.layerGroup();
+    for (const a of YARD_AREAS) {
+      L.polygon(a.poly.map(p => yardLL(p)), { renderer: rBase, color: a.color, weight: 1.5, dashArray: '5 4', fillColor: a.color, fillOpacity: 0.06, interactive: false }).addTo(yardGroup);
+      const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]) as [number, number];
+      L.marker(yardLL(c), { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="yarea" style="transform:translate(-50%,-50%)">${a.name}</div>`, iconSize: [0, 0] }) }).addTo(yardGroup);
+      for (const [id, p] of Object.entries(a.poles)) {
+        const job = JOB_POLES.includes(id);
+        L.circleMarker(yardLL(p), { renderer: rBase, radius: job ? 4.5 : 3.2, color: '#ffffff', weight: job ? 1.5 : 0.8, fillColor: '#e8a53a', fillOpacity: 1, interactive: false }).bindTooltip(id).addTo(yardGroup);
       }
     }
 
@@ -147,6 +160,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       show(l.lineGroup, t.feeders);
       show(l.calls, t.calls); show(l.truckGroup, t.trucks);
       show(l.osm, t.osm);
+      show(yardGroup, z >= 16.5);
     };
     map.on('zoomend', zoomVis);
     zoomVis();

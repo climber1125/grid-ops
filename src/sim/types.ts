@@ -130,8 +130,10 @@ export interface FieldCrewInfo {
 /** Operator → crew message (one document per message; updated in place as it moves along). */
 export interface ToCrew {
   id: string; truck: string; t: number;
-  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info';
+  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info' | 'job';
   text: string;
+  /** Job (work order) messages: job id, pole, its status, and whether it needs a clearance. */
+  job?: string; pole?: string; jobStatus?: JobStatus; needsClearance?: boolean;
   dev?: string; action?: SwAction; order?: string; step?: number; loop?: boolean;
   /** issued → (repeat) → cleared → done; or cancelled. Clearance: issued → released. */
   state: 'issued' | 'repeat' | 'cleared' | 'done' | 'cancelled' | 'released';
@@ -140,7 +142,9 @@ export interface ToCrew {
 /** Crew → operator event. */
 export interface FromCrew {
   id: string; truck: string; t: number; uid?: string;
-  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note';
+  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job';
+  /** kind 'job': which job and what the crew did. */
+  job?: string; jstep?: 'ack' | 'working' | 'complete';
   foreman?: string; members?: string[];
   status?: FieldStatus; at?: string; dest?: string;
   msg?: string; dev?: string; action?: SwAction; verified?: boolean; tag?: 'nfc' | 'qr' | 'manual' | 'none';
@@ -155,6 +159,18 @@ export interface FieldState {
   sent: Record<string, ToCrew>;
   /** Crew event ids already applied. */
   seen: Record<string, number>;
+  /** Yard work orders for real crews (crossarm change-outs, guying). */
+  jobs?: Record<string, FieldJob>;
+}
+export type JobKind = 'crossarm' | 'guy' | 'other';
+export type JobStatus = 'Open' | 'Assigned' | 'Acknowledged' | 'En route' | 'On site' | 'Working' | 'Complete' | 'Cancelled';
+export interface FieldJob {
+  id: string; kind: JobKind; pole: string; text: string;
+  truck?: string; status: JobStatus;
+  /** Pole is on the perimeter line / URD — crew must hold a clearance covering it before work. */
+  needsClearance: boolean;
+  created: number; doneT?: number;
+  log: { t: number; text: string }[];
 }
 
 export type IncStatus =

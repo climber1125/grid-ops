@@ -14,6 +14,9 @@
 .fa-card.step.cleared { border-color: #2f9e55; background: #10301c; }
 .fa-card.hold { border-color: #c98a1a; background: #33250c; }
 .fa-card.tag { border-width: 2px; border-color: #5b8def; }
+.fa-card.job { border-color: #2c5d8a; background: #13283b; }
+.fa-card.job.working { border-color: #2f9e55; background: #10301c; }
+.fa-warn.small { font-size: 15px; padding: 8px; }
 .fa-card label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: #9aa7b6; }
 .fa-card label.chk { flex-direction: row; align-items: center; gap: 10px; color: #e8edf3; font-size: 16px; padding: 6px 0; }
 .fa-card label.chk input { width: 26px; height: 26px; flex: none; }
@@ -38,7 +41,11 @@
 .fa .logline { font-size: 14px; padding: 6px 0; border-bottom: 1px solid #222b38; }
 .fa .logline .st { font: 600 11px ui-monospace, monospace; color: #9aa7b6; }
 .fa .yardmap { width: 100%; height: auto; background: #0a0e14; border-radius: 8px; }
-.fa .yardmap .ml { fill: #dfe6ee; font: 600 22px ui-monospace, monospace; text-anchor: middle; }
+.fa .yardmap { background: #10161d; }
+.fa .yardmap .ml { fill: #dfe6ee; font: 600 7px ui-monospace, monospace; text-anchor: middle; paint-order: stroke; stroke: #0a0e14; stroke-width: 2px; }
+.fa .yardmap .ml.dev { text-anchor: start; font-size: 6px; fill: #b9c4d0; }
+.fa .yardmap .ml.area { font: 700 7.5px system-ui, sans-serif; fill: #e8edf3; }
+.fa .yardmap .ml.crew { font-size: 8px; }
 .fa .yardmap .crew { fill: #ffd28a; }
 .fa .yardmap .crew.me { fill: #58a6ff; }
 .fa-tbl { width: 100%; border-collapse: collapse; font-size: 14px; }

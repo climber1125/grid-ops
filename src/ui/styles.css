@@ -480,3 +480,5 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 
 .state.ctl { background: #0f3440; color: #9fe3f3; border: 1px solid #1f5566; }
 :root[data-theme="light"] .state.ctl { background: #d6eef5; color: #0b5566; }
+
+.yarea { font: 700 11px system-ui, sans-serif; color: #e8edf3; background: rgba(10,14,20,.7); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
