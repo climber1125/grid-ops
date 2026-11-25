@@ -53,7 +53,7 @@ export function useFieldLink(e: Engine, isMaster: boolean): LinkStatus | null {
       }
       const r = e.fieldEvent(ev);
       // Ping the operator when a crew checks in at a tag or sends a brief (not for replays on reload).
-      if (Date.now() - started > 4000 && !r && (ev.kind === 'brief' || (ev.kind === 'status' && ev.status === 'On site'))) chirp();
+      if (Date.now() - started > 4000 && !r && (ev.kind === 'brief' || ev.kind === 'clearance' || ev.kind === 'release' || (ev.kind === 'status' && ev.status === 'On site'))) chirp();
       if (r) console.info('field event', ev.kind, ev.truck, '→', r);
       set({ lastHeard: Date.now() });
     });

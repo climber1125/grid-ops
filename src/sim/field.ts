@@ -390,8 +390,8 @@ export function fieldApply(e: Engine, ev: FromCrew): string | null {
     }
     case 'clearance': {
       if (!tr?.field) return 'Not a field crew';
-      if (tr.clearance) return `Already holding ${tr.clearance}`;
-      if (e.s.requests.some(r => r.type === 'clearance' && r.truck === truck && r.status === 'Pending')) return 'Already requested';
+      if (tr.clearance) { fieldSend(e, { id: `${truck}-C${e.s.seq++}`, truck, kind: 'info', state: 'issued', text: `You already hold clearance ${tr.clearance}. Release it before asking for another.` }); return `Already holding ${tr.clearance}`; }
+      if (e.s.requests.some(r => r.type === 'clearance' && r.truck === truck && r.status === 'Pending')) { fieldSend(e, { id: `${truck}-C${e.s.seq++}`, truck, kind: 'info', state: 'issued', text: 'Your clearance request is already with control — stand by.' }); return 'Already requested'; }
       const w = tr.waitIso as any;
       let el: string | undefined = w?.el, devs: string[] | undefined = w?.devs, nodes: string[] | undefined = w?.nodes;
       if (!el) {

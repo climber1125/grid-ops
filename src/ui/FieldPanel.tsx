@@ -7,6 +7,7 @@ import type { DevEl } from '../sim/types';
 import { devWord } from '../sim/radio';
 import { YARD_HOME, TROUBLE_TEMPLATES } from '../sim/field';
 import { FieldRadio } from './FieldRadio';
+import { ClearanceRequests } from './ClearanceRequests';
 import { JOB_POLES, ALL_POLES, areaOfPole, isLinePole } from '../sim/texasYard';
 
 export function joinUrl(code: string, local: boolean) {
@@ -41,6 +42,8 @@ export function FieldPanel() {
   const waitingTap = Object.values(e.s.orders).filter(o => o.status === 'Active' && o.steps[o.cur]?.status === 'InProgress' && e.s.trucks[o.steps[o.cur].exec]?.field);
   const linkTxt = !fieldLink ? 'Link runs in the main console window' : fieldLink.ok ? `Connected (${fieldLink.kind === 'local' ? 'local test' : 'Firebase'})${fieldLink.lastHeard ? ` · last crew message ${age((Date.now() - fieldLink.lastHeard) / 1000)} ago` : ''}` : `Link problem: ${fieldLink.err}`;
   return (
+    <>
+    <ClearanceRequests fieldOnly />
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
         <QrImg text={url} />
@@ -156,5 +159,6 @@ export function FieldPanel() {
         </>}
       </div>
     </div>
+    </>
   );
 }

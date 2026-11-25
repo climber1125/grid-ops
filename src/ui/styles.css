@@ -230,7 +230,7 @@ table.grid td.num { text-align: right; font-family: var(--mono); }
 .scada-right { border-left: 1px solid var(--line); overflow: auto; }
 
 /* ── Switching ───────────────────────────────────────────── */
-.sw { display: grid; grid-template-columns: 260px minmax(0, 1fr); height: 100%; min-height: 0; }
+.sw { display: grid; grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 100%; min-height: 0; }
 .sw-list { border-right: 1px solid var(--line); overflow: auto; }
 .sw-item { padding: 6px 8px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .sw-item.on { background: #0f2632; }
@@ -492,3 +492,8 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 .fradio .fr-item.out b { color: #8ab4ff; }
 .brief-card { border: 1px solid #5a4a1a; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12px; background: rgba(60,45,10,.2); display: flex; flex-direction: column; gap: 2px; }
 .brief-card.approved { border-color: #2f6d43; background: rgba(16,48,28,.3); }
+.creqs { display: flex; flex-direction: column; gap: 6px; margin: 6px 8px; }
+.creq { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; border: 2px solid #d29922; border-radius: 6px; padding: 8px 10px; background: rgba(80, 60, 10, .35); animation: creqPulse 1.6s ease-in-out 3; }
+.creq.release { border-color: #2f9e55; background: rgba(16, 48, 28, .35); }
+.creq .acts { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+@keyframes creqPulse { 50% { box-shadow: 0 0 0 4px rgba(210, 153, 34, .45); } }

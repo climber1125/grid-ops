@@ -59,7 +59,6 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
         <SayOr phrase="All units, Sparks Control, emergency traffic only"><button data-tut="emg" className="btn danger sm" onClick={() => run(e.declareEmergency())}>Emergency traffic</button></SayOr>
         <button data-tut="911" className="btn danger sm" title="Phone: call 911 and request EMS / fire / police" onClick={() => { run(e.notify911()); flash('911 called — EMS requested', 'alarm'); }}>☎ 911</button>
       </div>
-      {e.s.field?.code && <FieldRadio compact />}
       {emergency && (
         <div className="req emergency">
           <div className="rt"><b>EMERGENCY</b> — crew needs the line confirmed dead before rescue. Lock out the source, then tell them.</div>
@@ -84,6 +83,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
           ))}
         </div>
       )}
+      {e.s.field?.code && <FieldRadio compact />}
       <div className="transcript" ref={box} onScroll={ev => { const b = ev.currentTarget; stick.current = b.scrollHeight - b.scrollTop - b.clientHeight < 30; }}>
         {msgs.length === 0 && <div className="empty">Channel quiet.</div>}
         {msgs.map(m => (
