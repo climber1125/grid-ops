@@ -3,6 +3,7 @@
 import { useEffect, useState, Fragment } from 'react';
 import { useRadio } from '../field/radioStore';
 import { playClip } from '../field/fieldRadio';
+import { ClearanceRequests } from './ClearanceRequests';
 import { useCtx } from './ctx';
 import type { DevEl } from '../sim/types';
 import { devWord, actionsFor, ACTION_LABEL } from '../sim/radio';
@@ -81,6 +82,7 @@ export function SwitchingView() {
 
   return (
     <div className="sw">
+      <div style={{ gridColumn: '1 / -1' }}><ClearanceRequests /></div>
       <div className="sw-list">
         <div className="ph"><span className="ttl">Switching orders</span></div>
         <div className="form-row" style={{ padding: '0 8px' }}>
