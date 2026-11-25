@@ -22,6 +22,9 @@ export function solve(T: Topology, dev: Record<string, { open: boolean }>): NetS
   const loops = new Set<string>();
   let parallelSubs = false;
 
+  // All substation buses share the transmission source: reaching another station's bus is a parallel.
+  const busOf = new Map<string, string>();
+  for (const s of Object.values(T.subs)) busOf.set(s.bus, s.id);
   for (const s of Object.values(T.subs)) {
     if (en.has(s.bus)) continue;
     en.add(s.bus); src.set(s.bus, ''); sub.set(s.bus, s.id);
@@ -34,8 +37,10 @@ export function solve(T: Topology, dev: Record<string, { open: boolean }>): NetS
         if (el.kind === 'device' && dev[eid]?.open) continue;
         if (eid === parent.get(n)) continue;
         const m = el.from === n ? el.to : el.from;
+        const otherBus = busOf.get(m);
+        if (otherBus && otherBus !== s.id) { loops.add(eid); parallelSubs = true; continue; }
         if (en.has(m)) {
-          if (parent.get(m) !== eid) {
+          if (parent.get(m) !== eid && !localBypassLoop(T, el as DevEl, dev)) {
             loops.add(eid);
             if (sub.get(m) !== s.id) parallelSubs = true;
           }
@@ -51,6 +56,23 @@ export function solve(T: Topology, dev: Record<string, { open: boolean }>): NetS
     }
   }
   return { en, src, sub, parent, loops: [...loops], parallelSubs };
+}
+
+/** Devices in each recloser bypass group (recloser, source & load disconnects, bypass switch). */
+const groupCache = new WeakMap<Topology, Map<string, string[]>>();
+function groups(T: Topology) {
+  let g = groupCache.get(T);
+  if (!g) {
+    g = new Map();
+    for (const id of T.devIds) { const d = T.els[id] as DevEl; if (d.grp) { if (!g.has(d.grp)) g.set(d.grp, []); g.get(d.grp)!.push(id); } }
+    groupCache.set(T, g);
+  }
+  return g;
+}
+/** A closed bypass around a closed recloser is a local parallel, not a feeder loop. */
+function localBypassLoop(T: Topology, el: DevEl, dev: Record<string, { open: boolean }>): boolean {
+  if (el.kind !== 'device' || !el.grp) return false;
+  return (groups(T).get(el.grp) ?? []).every(id => !dev[id]?.open);
 }
 
 /** Elements on the path from a node back to its source (nearest first). */

@@ -8,8 +8,9 @@ import { cumLen, pointAt, dirAt, subPath, offset, dist } from './geo';
 import { RNG } from './rng';
 import { nearestName, zoneAt } from './roads';
 import { solve } from './network';
+import { YARD_SUB, LINE_POLES, YARD_FEEDERS, YARD_TIES, yardLL } from './texasYard';
 
-interface DevSpec { f: number; type: 'recloser' | 'switch'; id: string; scada: boolean; }
+interface DevSpec { f: number; type: 'recloser' | 'switch' | 'regulator' | 'cap'; id: string; scada: boolean; }
 interface CritSpec { f: number; side: 1 | -1; name: string; cls: LoadClass; kw: number; cust: number; }
 interface FeederSpec { id: string; sub: string; color: string; ratingA: number; path: LatLng[]; devs: DevSpec[]; crit: CritSpec[]; }
 interface TieSpec { id: string; from: string; to: string; toPos: LatLng; path: LatLng[]; scada: boolean; }
@@ -37,6 +38,7 @@ const FEEDERS: FeederSpec[] = [
     devs: [
       { f: 0.22, type: 'switch', id: 'S-1222', scada: false },
       { f: 0.40, type: 'recloser', id: 'R-1225', scada: true },
+      { f: 0.55, type: 'cap', id: 'CAP-1224', scada: true },
       { f: 0.68, type: 'switch', id: 'S-1226', scada: true },
       { f: 0.92, type: 'switch', id: 'S-1228', scada: false },
     ],
@@ -48,6 +50,7 @@ const FEEDERS: FeederSpec[] = [
     devs: [
       { f: 0.14, type: 'switch', id: 'S-2112', scada: false },
       { f: 0.38, type: 'switch', id: 'S-2114', scada: false },
+      { f: 0.50, type: 'cap', id: 'CAP-2115', scada: false },
       { f: 0.62, type: 'switch', id: 'S-2116', scada: true },
       { f: 0.84, type: 'recloser', id: 'R-2118', scada: true },
     ],
@@ -71,6 +74,7 @@ const FEEDERS: FeederSpec[] = [
       { f: 0.20, type: 'switch', id: 'S-3112', scada: false },
       { f: 0.40, type: 'recloser', id: 'R-3115', scada: true },
       { f: 0.64, type: 'switch', id: 'S-3116', scada: false },
+      { f: 0.75, type: 'regulator', id: 'VR-3117', scada: false },
       { f: 0.86, type: 'switch', id: 'S-3118', scada: true },
     ],
     crit: [{ f: 0.55, side: 1, name: 'NTSU CENTRAL UTILITY PLANT', cls: 'com', kw: 850, cust: 1 }],
@@ -93,6 +97,8 @@ const TIES: TieSpec[] = [
   { id: 'TS-12', from: 'IW-2110', to: 'CH-1220', toPos: [33.2290, -97.1420], path: [[33.2290, -97.1330], [33.2290, -97.1420]], scada: false },
   { id: 'TS-13', from: 'BS-3110', to: 'CH-1220', toPos: [33.2190, -97.1560], path: [[33.2120, -97.1560], [33.2190, -97.1560]], scada: true },
   { id: 'TS-14', from: 'BS-3120', to: 'IW-2120', toPos: [33.2030, -97.1020], path: [[33.2030, -97.1140], [33.2030, -97.1020]], scada: false },
+  // Alternate source for the water treatment plant on the IW-2120 tail.
+  { id: 'TS-15', from: 'IW-2120', to: 'BS-3120', toPos: [33.1930, -97.1140], path: [[33.1930, -97.0880], [33.1930, -97.1140]], scada: false },
 ];
 
 const STREETS = [
@@ -134,8 +140,21 @@ export function buildTopology(): Topology {
   let nSeq = 0, txSeq = 4100, streetIdx = 0;
   const mkNode = (pos: LatLng) => { const id = 'N' + (nSeq++); T.nodes[id] = { id, pos }; T.adj[id] = []; return id; };
   const addEl = (el: LineEl | DevEl) => { T.els[el.id] = el; T.adj[el.from].push(el.id); T.adj[el.to].push(el.id); if (el.kind === 'device') T.devIds.push(el.id); };
-  const mkDev = (id: string, from: string, to: string, feeder: string, type: DevEl['type'], scada: boolean, normalOpen: boolean, pos: LatLng) =>
-    addEl({ id, kind: 'device', from, to, feeder, type, scada, normalOpen, pos, loc: nearestName(pos) });
+  const EQUIP: Partial<Record<DevEl['type'], [string, boolean]>> = {
+    breaker: ['Feeder circuit breaker, 1200 A', true],
+    recloser: ['Three-phase electronic recloser, 560 A', true],
+    switch: ['Gang-operated air-break switch (GOAB), load-break, 600 A', true],
+    tie: ['Normally open tie, GOAB load-break, 600 A', true],
+    fuse: ['Lateral tap fuse (cutout), 65K', false],
+    xfmr: ['Distribution transformer with fused cutout', false],
+    disc: ['Single-phase disconnect (solid blade), NON-load-break', false],
+    reg: ['Three single-phase step voltage regulators, 32-step (±10%), 328 A, with controls', true],
+    cap: ['600 kVAR switched capacitor bank — vacuum switches, AUTO/MANUAL controller', true],
+  };
+  const mkDev = (id: string, from: string, to: string, feeder: string, type: DevEl['type'], scada: boolean, normalOpen: boolean, pos: LatLng, extra?: Partial<DevEl>) => {
+    const [equip, lb] = EQUIP[type] ?? ['', true];
+    addEl({ id, kind: 'device', from, to, feeder, type, scada, normalOpen, pos, loc: nearestName(pos), equip, lb, ...extra });
+  };
   const mkLine = (id: string, from: string, to: string, feeder: string, path: LatLng[], ug: boolean, lateral: boolean, tie = false) =>
     addEl({ id, kind: 'line', from, to, feeder, len: cumLen(path).at(-1)!, ug, lateral, tie, path });
 
@@ -157,6 +176,10 @@ export function buildTopology(): Topology {
   for (const s of SUB_SPECS) {
     const bus = mkNode(s.bus);
     T.subs[s.id] = { id: s.id, name: s.name, pos: s.pos, bus, mva: s.mva, feeders: [] };
+  }
+  {
+    const p = yardLL(LINE_POLES[YARD_FEEDERS[0].source]);
+    T.subs[YARD_SUB.id] = { id: YARD_SUB.id, name: YARD_SUB.name, pos: offset(p, -12, -12), bus: mkNode(p), mva: YARD_SUB.mva, feeders: [] };
   }
 
   for (const fs of FEEDERS) {
@@ -193,8 +216,11 @@ export function buildTopology(): Topology {
     const order = { vertex: 0, split: 1, crit: 2, com: 3, lat: 4, dev: 5 };
     pts.sort((a, b) => a.d - b.d || order[a.kind] - order[b.kind]);
 
+    // Feeder breaker, then the getaway disconnect that gives the visible open at the station.
+    const nb = mkNode(fs.path[0]);
     const n0 = mkNode(fs.path[0]);
-    mkDev(info.breaker, sub.bus, n0, fs.id, 'breaker', true, false, fs.path[0]);
+    mkDev(info.breaker, sub.bus, nb, fs.id, 'breaker', true, false, fs.path[0]);
+    mkDev(`D-${num}L`, nb, n0, fs.id, 'disc', false, false, fs.path[0], { vis: info.breaker, equip: 'Feeder getaway disconnect (gang-operated), NON-load-break — visible open for the breaker' });
     info.sch.push({ kind: 'dev', id: info.breaker, f: 0, node: n0 });
     info.vertNodes.push({ pos: fs.path[0], node: n0 });
     let cur = n0, curD = 0, segSeq = 0;
@@ -211,7 +237,38 @@ export function buildTopology(): Topology {
       const here = T.nodes[cur].pos;
       const [de, dn] = dirAt(fs.path, cum, Math.min(p.d + 1, L));
       if (p.kind === 'vertex') info.vertNodes.push({ pos: here, node: cur });
-      else if (p.kind === 'dev') {
+      else if (p.kind === 'dev' && p.ref.type === 'cap') {
+        // Shunt capacitor bank on a short tap off the main line.
+        const side = p.ref.id.endsWith('4') ? 1 : -1;
+        const cp = offset(here, -dn * 24 * side, de * 24 * side);
+        const cn = mkNode(cp);
+        mkDev(p.ref.id, cur, cn, fs.id, 'cap', p.ref.scada, false, cp);
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: cur });
+      } else if (p.kind === 'dev' && p.ref.type === 'regulator') {
+        // Regulator bank with the standard bypass: source disc, regulators, load disc, bypass (normally open).
+        const n = p.ref.id.slice(3), grp = p.ref.id;
+        const at = (m: number) => offset(here, de * m, dn * m);
+        const a = mkNode(at(-6)), b = mkNode(at(6)), out = mkNode(at(12));
+        mkDev(`D-${n}S`, cur, a, fs.id, 'disc', false, false, at(-9), { grp, equip: 'Regulator SOURCE disconnect (solid blade), NON-load-break' });
+        mkDev(p.ref.id, a, b, fs.id, 'reg', p.ref.scada, false, here, { grp });
+        mkDev(`D-${n}L`, b, out, fs.id, 'disc', false, false, at(9), { grp, equip: 'Regulator LOAD disconnect (solid blade), NON-load-break' });
+        mkDev(`BP-${n}`, cur, out, fs.id, 'switch', false, true, offset(here, -dn * 14, de * 14), { grp, lb: false, equip: 'Regulator bypass switch, NON-load-break, normally open — close ONLY with the regulators on NEUTRAL' });
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: out });
+        cur = out;
+      } else if (p.kind === 'dev' && p.ref.type === 'recloser') {
+        // Standard three-switch recloser bypass:
+        //   cur ─[D-xxxxA source disc]─ a ─[R-xxxx]─ b ─[D-xxxxB load disc]─ out
+        //   cur ──────────────[BP-xxxx bypass, normally open]─────────────── out
+        const n = p.ref.id.slice(2), grp = p.ref.id;
+        const at = (m: number) => offset(here, de * m, dn * m);
+        const a = mkNode(at(-6)), b = mkNode(at(6)), out = mkNode(at(12));
+        mkDev(`D-${n}A`, cur, a, fs.id, 'disc', false, false, at(-9), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break' });
+        mkDev(p.ref.id, a, b, fs.id, 'recloser', p.ref.scada, false, here, { grp });
+        mkDev(`D-${n}B`, b, out, fs.id, 'disc', false, false, at(9), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break' });
+        mkDev(`BP-${n}`, cur, out, fs.id, 'switch', false, true, offset(here, -dn * 14, de * 14), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open' });
+        info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: out });
+        cur = out;
+      } else if (p.kind === 'dev') {
         const n2 = mkNode(here);
         mkDev(p.ref.id, cur, n2, fs.id, p.ref.type, p.ref.scada, false, here);
         info.sch.push({ kind: 'dev', id: p.ref.id, f: p.d / L, node: n2 });
@@ -255,6 +312,72 @@ export function buildTopology(): Topology {
     info.end = cur;
   }
 
+  // ── Texas campus training yard: poles, spans and devices traced from Texas Ops (texasYard.ts) ──
+  const poleNode: Record<string, string> = {};
+  for (const yf of YARD_FEEDERS) {
+    const num = yf.id.slice(3);
+    const sub = T.subs[YARD_SUB.id];
+    sub.feeders.push(yf.id);
+    const P = (id: string) => yardLL(LINE_POLES[id]);
+    // distance from the source along the tree, for one-line ordering
+    const dAt: Record<string, number> = { [yf.source]: 0 };
+    for (const [a, b] of yf.spans) dAt[b] = (dAt[a] ?? 0) + dist(P(a), P(b));
+    const L = Math.max(1, ...Object.values(dAt));
+    const info: FeederInfo = {
+      id: yf.id, sub: YARD_SUB.id, color: yf.color, ratingA: yf.ratingA, length: L, breaker: 'CB-' + num,
+      mainEls: [], end: '', sch: [], vertNodes: [], ties: [],
+    };
+    T.feeders[yf.id] = info; T.feederIds.push(yf.id);
+    const p0 = P(yf.source);
+    const nb = mkNode(p0), n0 = mkNode(p0);
+    mkDev(info.breaker, sub.bus, nb, yf.id, 'breaker', true, false, p0, { loc: `${yf.name.split(' — ')[0]} (pole ${yf.source})` });
+    mkDev(`D-${num}L`, nb, n0, yf.id, 'disc', false, false, p0, { vis: info.breaker, loc: `${yf.name.split(' — ')[0]} (pole ${yf.source})`, equip: 'Source disconnect (gang-operated), NON-load-break — visible open for the breaker' });
+    info.sch.push({ kind: 'dev', id: info.breaker, f: 0, node: n0 });
+    info.vertNodes.push({ pos: p0, node: n0 });
+    poleNode[yf.source] = n0;
+    let seq = 0, far = yf.source;
+    for (const [from, pid] of yf.spans) {
+      const a = P(from), pos = P(pid);
+      let cur = poleNode[from];
+      const nn = mkNode(pos);
+      const id = `${yf.id}-M${String(++seq).padStart(2, '0')}`;
+      mkLine(id, cur, nn, yf.id, [a, pos], false, false);
+      (T.els[id] as LineEl & { loc?: string }).loc = `Span ${from}–${pid}`;
+      info.mainEls.push(id);
+      cur = nn;
+      const f = dAt[pid] / L;
+      if (dAt[pid] > dAt[far]) far = pid;
+      const [de, dn] = (() => { const d = dist(a, pos) || 1; const m = 111320, c = Math.cos(a[0] * Math.PI / 180); return [((pos[1] - a[1]) * m * c) / d, ((pos[0] - a[0]) * m) / d]; })();
+      const dv = yf.devs[pid];
+      if (dv?.type === 'recloser') {
+        const n = dv.id.slice(2), grp = dv.id;
+        const at = (m: number) => offset(pos, de * m, dn * m);
+        const ra = mkNode(at(-1.5)), rb = mkNode(at(1.5)), out = mkNode(pos);
+        mkDev(`D-${n}A`, cur, ra, yf.id, 'disc', false, false, at(-2), { grp, vis: grp, equip: 'Recloser source-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(dv.id, ra, rb, yf.id, 'recloser', dv.scada, false, pos, { grp, loc: `Pole ${pid}` } as any);
+        mkDev(`D-${n}B`, rb, out, yf.id, 'disc', false, false, at(2), { grp, vis: grp, equip: 'Recloser load-side disconnect (solid blade), NON-load-break', loc: `Pole ${pid}` } as any);
+        mkDev(`BP-${n}`, cur, out, yf.id, 'switch', false, true, offset(pos, -dn * 3, de * 3), { grp, lb: false, equip: 'Recloser bypass switch (solid blade), NON-load-break, normally open', loc: `Pole ${pid}` } as any);
+        info.sch.push({ kind: 'dev', id: dv.id, f, node: out });
+        cur = out;
+      } else if (dv) {
+        const n2 = mkNode(pos);
+        mkDev(dv.id, cur, n2, yf.id, 'switch', dv.scada, false, pos, { loc: `Pole ${pid}` } as any);
+        info.sch.push({ kind: 'dev', id: dv.id, f, node: n2 });
+        cur = n2;
+      }
+      poleNode[pid] = cur;
+      info.vertNodes.push({ pos, node: cur });
+      const xf = yf.xfmrs[pid];
+      if (xf) {
+        const lp = offset(pos, dn * 5, -de * 5);
+        const ld = addLoad(cur, yf.id, lp, cur, xf.critical ? 'critical' : 'com', undefined, 'Training Yard', { name: xf.name, kw: xf.kw, cust: xf.cust });
+        T.els[ld.xfmr] && ((T.els[ld.xfmr] as DevEl).loc = `Pole ${pid}`);
+        if (xf.critical) info.sch.push({ kind: 'load', id: ld.id, f, node: cur });
+      }
+    }
+    info.end = poleNode[far];
+  }
+
   // Ties: line from the 'from' feeder's end to an open tie switch at the 'to' feeder's vertex
   for (const ts of TIES) {
     const from = T.feeders[ts.from], to = T.feeders[ts.to];
@@ -267,6 +390,16 @@ export function buildTopology(): Topology {
     from.sch.push({ kind: 'tie', id: ts.id, f: 1, node: from.end });
     const tf = to.vertNodes.indexOf(target);
     to.sch.push({ kind: 'tie', id: ts.id, f: tf / Math.max(1, to.vertNodes.length - 1), node: target.node });
+  }
+  for (const yt of YARD_TIES) {
+    const from = T.feeders[yt.fromFeeder], to = T.feeders[yt.toFeeder];
+    const a = yardLL(LINE_POLES[yt.from]), b = yardLL(LINE_POLES[yt.to]);
+    const tn = mkNode(b);
+    mkLine(`${yt.id}-LN`, poleNode[yt.from], tn, yt.fromFeeder, [a, b], false, false, true);
+    mkDev(yt.id, tn, poleNode[yt.to], yt.fromFeeder, 'tie', yt.scada, true, b, { loc: `Pole ${yt.to}` } as any);
+    from.ties.push(yt.id); to.ties.push(yt.id); T.ties.push(yt.id);
+    from.sch.push({ kind: 'tie', id: yt.id, f: 1, node: poleNode[yt.from] });
+    to.sch.push({ kind: 'tie', id: yt.id, f: 1, node: poleNode[yt.to] });
   }
   for (const f of Object.values(T.feeders)) f.sch.sort((a, b) => a.f - b.f);
 

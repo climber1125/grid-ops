@@ -7,6 +7,7 @@ import 'leaflet/dist/leaflet.css';
 import { useCtx, type Sel } from './ctx';
 import { ROADS, ZONES, CREEK, localStreets } from '../sim/roads';
 import { SUB_SPECS } from '../sim/topology';
+import { YARD_AREAS, yardLL, JOB_POLES, ALL_POLES } from '../sim/texasYard';
 import type { DevEl, LineEl, LatLng } from '../sim/types';
 import type { Engine } from '../sim/engine';
 
@@ -40,7 +41,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
 
   useEffect(() => {
     const T = eRef.current.T;
-    const map = L.map(divRef.current!, { preferCanvas: true, minZoom: 12, maxZoom: 19, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 }).fitBounds([[33.1885, -97.1640], [33.2500, -97.0850]], { padding: [10, 10] });
+    const map = L.map(divRef.current!, { preferCanvas: true, minZoom: 12, maxZoom: 21, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 }).fitBounds([[33.1885, -97.1640], [33.2500, -97.0850]], { padding: [10, 10] });
     mapRef.current = map;
     map.attributionControl.setPrefix('GRID OPS — synthetic network, Sparks TX');
     const mkPane = (n: string, z: number, noPtr = false) => { const p = map.createPane(n); p.style.zIndex = String(z); if (noPtr) p.style.pointerEvents = 'none'; return p; };
@@ -48,7 +49,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
     const rBase = L.canvas({ pane: 'base', padding: 0.5 }), rRoads = L.canvas({ pane: 'roads', padding: 0.5 }), rNet = L.canvas({ pane: 'net', padding: 0.5, tolerance: 4 } as any),
       rXf = L.canvas({ pane: 'xf', padding: 0.5 }), rDev = L.canvas({ pane: 'dev', padding: 0.5, tolerance: 3 } as any), rEv = L.canvas({ pane: 'ev', padding: 0.5 });
 
-    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, className: 'osm-dark', attribution: '© OpenStreetMap contributors' });
+    const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 21, maxNativeZoom: 19, className: 'osm-dark', attribution: '© OpenStreetMap contributors' });
 
     // Offline basemap
     for (const z of ZONES) L.rectangle([[z.b[0], z.b[1]], [z.b[2], z.b[3]]], { renderer: rBase, stroke: z.cls === 'park', color: '#1c3a2c', weight: 1, fillColor: ZONE_FILL[z.cls], fillOpacity: 1, interactive: false }).addTo(map);
@@ -70,6 +71,21 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       for (const f of spots) {
         const p: LatLng = r.pts.length > 2 ? r.pts[Math.floor(f * (r.pts.length - 1))] : [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
         L.marker(p, { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="rlabel ${ns ? 'ns' : ''} ${r.cls === 'hwy' ? 'hwy' : ''}" style="transform:translate(${ns ? '4px,-50%' : '-50%,-120%'})">${r.name}</div>`, iconSize: [0, 0] }) }).addTo(roadLabels);
+      }
+    }
+
+    // NLC Texas yard: work areas and their poles (Texas Ops look), shown when zoomed in
+    const yardGroup = L.layerGroup();
+    const yardIds = L.layerGroup();
+    for (const [id, p] of Object.entries(ALL_POLES)) L.marker(yardLL(p), { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="ypid">${id}</div>`, iconSize: [0, 0] }) }).addTo(yardIds);
+    for (const a of YARD_AREAS) {
+      if (!a.poly.length) { for (const [id, p] of Object.entries(a.poles)) L.circleMarker(yardLL(p), { renderer: rBase, radius: 3.2, color: '#ffffff', weight: 0.8, fillColor: '#e8a53a', fillOpacity: 1, interactive: false }).bindTooltip(id).addTo(yardGroup); continue; }
+      L.polygon(a.poly.map(p => yardLL(p)), { renderer: rBase, color: a.color, weight: 1.5, dashArray: '5 4', fillColor: a.color, fillOpacity: 0.06, interactive: false }).addTo(yardGroup);
+      const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]) as [number, number];
+      L.marker(yardLL(c), { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="yarea" style="transform:translate(-50%,-50%)">${a.name}</div>`, iconSize: [0, 0] }) }).addTo(yardGroup);
+      for (const [id, p] of Object.entries(a.poles)) {
+        const job = JOB_POLES.includes(id);
+        L.circleMarker(yardLL(p), { renderer: rBase, radius: job ? 5.5 : 4.5, color: a.electric ? '#0b0f14' : '#fff4dc', weight: a.electric ? 2 : 1.2, fillColor: a.electric ? '#f2f5f8' : '#f0a92e', fillOpacity: 1, interactive: false }).bindTooltip(id).addTo(yardGroup);
       }
     }
 
@@ -100,11 +116,13 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
     for (const id of T.switchable) {
       const d = T.els[id] as DevEl;
       const r = d.type === 'breaker' ? 6.5 : d.type === 'recloser' ? 6 : d.type === 'tie' ? 5.5 : d.type === 'switch' ? 4.8 : 2.8;
-      const m = L.circleMarker(d.pos, { renderer: rDev, radius: r, weight: d.type === 'fuse' ? 1 : 2 });
+      // Fuses, disconnects and recloser bypass blades only show when zoomed in close.
+      const minor = d.type === 'fuse' || d.type === 'disc' || (!!d.grp && d.type !== 'recloser' && d.type !== 'reg');
+      const m = L.circleMarker(d.pos, { renderer: rDev, radius: d.type === 'reg' ? 6 : d.type === 'cap' ? 4.6 : d.type === 'disc' ? 3.2 : d.grp && d.type === 'switch' ? 3.6 : r, weight: d.type === 'fuse' ? 1 : 2 });
       m.on('click', (ev) => { L.DomEvent.stopPropagation(ev); setSelRef.current({ kind: 'dev', id }); });
-      m.addTo(d.type === 'fuse' ? fuseGroup : devGroup); devs.set(id, m);
+      m.addTo(minor ? fuseGroup : devGroup); devs.set(id, m);
       const lblHtml = `<div class="dlabel" data-dev="${id}" style="transform:translate(8px,-50%)">${id}</div>`;
-      if (d.type !== 'breaker') L.marker(d.pos, { pane: 'lbl', interactive: false, icon: L.divIcon({ className: '', html: lblHtml, iconSize: [0, 0] }) }).addTo(d.type === 'fuse' ? fuseLabels : devLabels);
+      if (d.type !== 'breaker') L.marker(d.pos, { pane: 'lbl', interactive: false, icon: L.divIcon({ className: '', html: lblHtml, iconSize: [0, 0] }) }).addTo(minor ? fuseLabels : devLabels);
     }
     // Substations
     for (const s of SUB_SPECS) {
@@ -145,6 +163,8 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       show(l.lineGroup, t.feeders);
       show(l.calls, t.calls); show(l.truckGroup, t.trucks);
       show(l.osm, t.osm);
+      show(yardGroup, z >= 16.5);
+      show(yardIds, t.labels && z >= 19.5);
     };
     map.on('zoomend', zoomVis);
     zoomVis();

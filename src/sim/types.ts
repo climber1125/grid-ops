@@ -5,7 +5,9 @@
 
 export type LatLng = [number, number];
 
-export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr';
+export type DevType = 'breaker' | 'recloser' | 'switch' | 'tie' | 'fuse' | 'xfmr' | 'disc' | 'reg' | 'cap';
+/** Switching-order actions. open/close operate the device; the rest change a control. */
+export type SwAction = 'open' | 'close' | 'manual' | 'auto' | 'neutral' | 'nr-on' | 'nr-off';
 export type LoadClass = 'res' | 'apt' | 'com' | 'ind' | 'critical';
 
 export interface NetNode { id: string; pos: LatLng; }
@@ -17,6 +19,14 @@ export interface LineEl {
 export interface DevEl {
   id: string; kind: 'device'; from: string; to: string; feeder: string;
   type: DevType; scada: boolean; normalOpen: boolean; pos: LatLng; loc: string;
+  /** Can interrupt / pick up load. Disconnects and recloser bypass blades cannot. */
+  lb?: boolean;
+  /** Recloser bypass group (e.g. 'R-1215') this device belongs to. */
+  grp?: string;
+  /** Equipment description for the inspector and device list. */
+  equip?: string;
+  /** For disconnects: the breaker/recloser this gives a visible open for. */
+  vis?: string;
 }
 export type El = LineEl | DevEl;
 
@@ -63,6 +73,10 @@ export interface Topology {
 
 export interface DevState {
   open: boolean; lockout: boolean; tags: string[]; comm: boolean; ops: number; nonReclose?: boolean;
+  /** Regulator tap (-16..+16, 0 = neutral) and regulator / cap bank control mode. */
+  tap?: number; ctl?: 'auto' | 'manual';
+  /** Cap bank: last time the bank was connected and energized, and when it went dead. */
+  capLive?: number; capDead?: number | null;
   tripFault?: string; lastT?: number;
 }
 
@@ -100,6 +114,67 @@ export interface Truck {
   drive?: number; work?: number;
   /** Experience level — drives how often the crew repeats a switching step back wrong. */
   exp?: string;
+  /** A real crew on a phone (field scenario). The sim never drives or animates it. */
+  field?: FieldCrewInfo;
+}
+
+// ── Field scenario: real crews on phones ─────────────────────
+export type FieldStatus = 'At yard' | 'En route' | 'On site' | 'Working' | 'Standing by';
+export interface FieldCrewInfo {
+  foreman: string; members: string[];
+  status: FieldStatus;
+  /** Device the crew is at (or heading to); 'yard' at the service yard. */
+  at: string; dest?: string;
+  lastT: number;
+}
+/** Operator → crew message (one document per message; updated in place as it moves along). */
+export interface ToCrew {
+  id: string; truck: string; t: number;
+  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info' | 'job' | 'radio';
+  text: string;
+  /** Radio: recorded voice clip (data URL), its type and length in seconds. */
+  audio?: string; mime?: string; dur?: number;
+  /** Job (work order) messages: job id, pole, its status, and whether it needs a clearance. */
+  job?: string; pole?: string; jobStatus?: JobStatus; needsClearance?: boolean;
+  dev?: string; action?: SwAction; order?: string; step?: number; loop?: boolean;
+  /** issued → (repeat) → cleared → done; or cancelled. Clearance: issued → released. */
+  state: 'issued' | 'repeat' | 'cleared' | 'done' | 'cancelled' | 'released';
+  clearance?: string; devs?: string[];
+}
+/** Crew → operator event. */
+export interface FromCrew {
+  id: string; truck: string; t: number; uid?: string;
+  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job' | 'radio';
+  /** Radio: recorded voice clip (data URL), its type and length in seconds; sentAt = phone wall clock (ms). */
+  audio?: string; mime?: string; dur?: number; sentAt?: number;
+  /** kind 'job': which job and what the crew did. */
+  job?: string; jstep?: 'ack' | 'working' | 'complete';
+  foreman?: string; members?: string[];
+  status?: FieldStatus; at?: string; dest?: string;
+  msg?: string; dev?: string; action?: SwAction; verified?: boolean; tag?: 'nfc' | 'qr' | 'manual' | 'none';
+  text?: string;
+}
+export interface FieldState {
+  code: string | null;
+  backend: 'firebase' | 'local' | null;
+  /** Messages for the link layer to write to the shared session. */
+  outbox: ToCrew[];
+  /** Every message sent, by id, so the console can show them. */
+  sent: Record<string, ToCrew>;
+  /** Crew event ids already applied. */
+  seen: Record<string, number>;
+  /** Yard work orders for real crews (crossarm change-outs, guying). */
+  jobs?: Record<string, FieldJob>;
+}
+export type JobKind = 'crossarm' | 'guy' | 'other';
+export type JobStatus = 'Open' | 'Assigned' | 'Acknowledged' | 'En route' | 'On site' | 'Working' | 'Complete' | 'Cancelled';
+export interface FieldJob {
+  id: string; kind: JobKind; pole: string; text: string;
+  truck?: string; status: JobStatus;
+  /** Pole is on the perimeter line / URD — crew must hold a clearance covering it before work. */
+  needsClearance: boolean;
+  created: number; doneT?: number;
+  log: { t: number; text: string }[];
 }
 
 export type IncStatus =
@@ -139,14 +214,18 @@ export interface LogEntry { id: number; t: number; cat: 'SCADA' | 'OMS' | 'DISPA
 export type ReqType = 'close' | 'clearance' | 'release' | 'pressure' | 'hotline';
 export interface Request {
   id: string; t: number; type: ReqType; truck: string; inc?: string; dev?: string; devs?: string[];
+  /** Explicit section (for equipment bypass clearances) instead of the section around dev. */
+  nodes?: string[];
   text: string; status: 'Pending' | 'Approved' | 'Denied' | 'Done';
 }
 
 export type StepStatus = 'Pending' | 'Issued' | 'RepeatBack' | 'InProgress' | 'Done' | 'Failed';
 export interface SwStep {
-  dev: string; action: 'open' | 'close'; exec: string; // 'SCADA' or truck id
-  loop: boolean; status: StepStatus; rbDev?: string; rbAction?: 'open' | 'close'; note?: string; doneT?: number;
+  dev: string; action: SwAction; exec: string; // 'SCADA' or truck id
+  loop: boolean; status: StepStatus; rbDev?: string; rbAction?: SwAction; note?: string; doneT?: number;
   injectError?: boolean; injectErrorDev?: string;
+  /** Execution log for instructor review: issued, repeat-back, confirm/reject, operated. */
+  log?: { t: number; ev: string; ok?: boolean }[];
 }
 export interface SwitchingOrder {
   id: string; title: string; steps: SwStep[]; status: 'Draft' | 'Active' | 'Complete' | 'Cancelled';
@@ -169,6 +248,7 @@ export interface QItem { t: number; seq: number; kind: string; data: any; }
 
 export interface SimState {
   version: 2;
+  field?: FieldState;
   seed: number; scenario: string; t: number; startEpoch: number;
   speed: number; paused: boolean; rng: number; seq: number;
   queue: QItem[];

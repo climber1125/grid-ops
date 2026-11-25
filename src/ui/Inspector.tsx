@@ -59,6 +59,19 @@ function DevView({ id }: { id: string }) {
         </span>
         <span className="k">Normal</span><span className="v">{d.normalOpen ? 'Normally OPEN' : 'Normally CLOSED'}{st.open !== d.normalOpen ? <span className="c-amber"> · ABNORMAL</span> : null}</span>
         <span className="k">Location</span><span className="v">{d.loc}</span>
+        {d.equip && <><span className="k">Equipment</span><span className="v" style={{ whiteSpace: 'normal' }}>{d.equip}</span></>}
+        {d.lb === false && d.type !== 'fuse' && d.type !== 'xfmr' && <><span className="k">Load-break</span><span className="v c-red">NO — don't make or break load</span></>}
+        {d.type === 'reg' && <>
+          <span className="k">Tap</span><span className={`v ${st.tap ? 'c-amber' : 'c-green'}`}>{st.tap ? `${Math.abs(st.tap)}${st.tap > 0 ? 'R' : 'L'} (${(Math.abs(st.tap) * 0.625).toFixed(2)}% ${st.tap > 0 ? 'boost' : 'buck'})` : 'NEUTRAL'}</span>
+          <span className="k">Control</span><span className={`v ${st.ctl === 'manual' ? 'c-amber' : ''}`}>{st.ctl?.toUpperCase()}</span>
+          <span className="k">Bypass</span><span className="v">{e.s.dev[`BP-${id.slice(3)}`]?.open ? 'Open (in service)' : <span className="c-amber">CLOSED — regulator bypassed</span>}</span>
+        </>}
+        {d.type === 'cap' && <>
+          <span className="k">Bank</span><span className="v">{st.open ? 'OFF (switches open)' : en ? <span className="c-green">ON line</span> : 'Switches closed, bank dead'}</span>
+          <span className="k">Controller</span><span className={`v ${st.ctl === 'manual' ? 'c-amber' : ''}`}>{st.ctl?.toUpperCase()}{st.ctl === 'auto' ? ' — on for the afternoon/evening peak' : ''}</span>
+          {st.capDead != null && <><span className="k">De-energized</span><span className={`v ${e.s.t - st.capDead < 300 ? 'c-red' : ''}`}>{Math.round((e.s.t - st.capDead) / 60)} min ago{e.s.t - st.capDead < 300 ? ' — still discharging, wait 5 min' : ''}</span></>}
+        </>}
+        {(d.type === 'breaker' || d.type === 'recloser') && st.nonReclose && <><span className="k">Reclosing</span><span className="v c-amber">BLOCKED</span></>}
         <span className="k">Control</span><span className="v">{d.scada ? (st.comm ? <span className="c-green">SCADA · comm OK</span> : <span className="c-amber">SCADA · COMM FAIL</span>) : 'Manual (field crew)'}</span>
         {d.scada && <><span className="k">Load (est.)</span><span className="v">{en && !st.open ? `${e.devAmps(id).toFixed(0)} A` : '0 A'}</span></>}
         <span className="k">Downstream</span><span className="v">{e.T.devCust[id].toLocaleString()} cust (normal)</span>

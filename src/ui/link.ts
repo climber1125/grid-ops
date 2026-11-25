@@ -9,7 +9,7 @@
 import type { Engine } from '../sim/engine';
 import type { Sel } from './ctx';
 
-export type View = 'all' | 'wall' | 'gis' | 'scada' | 'sw' | 'ops' | 'oms' | 'radio' | 'crew' | 'alarms' | 'rel';
+export type View = 'all' | 'wall' | 'gis' | 'scada' | 'sw' | 'tx' | 'ops' | 'oms' | 'radio' | 'crew' | 'alarms' | 'rel';
 export const VIEWS: [View, string][] = [
   ['all', 'Full console'], ['wall', 'Status wall (big screen / projector)'], ['gis', 'GIS map'], ['scada', 'SCADA'], ['sw', 'Switching'], ['ops', 'Ops desk (OMS · radio · units · alarms)'],
   ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms'], ['rel', 'Reliability'],
@@ -21,7 +21,7 @@ export const ACTIONS = new Set([
   'approve', 'deny', 'releaseClearance', 'newOrder', 'addStep', 'removeStep', 'activateOrder', 'cancelOrder',
   'issueStep', 'confirmRepeat', 'verifyIncident', 'decision', 'setSpeed', 'setPaused', 'setAutoAssist',
   'rosterAdd', 'rosterEdit', 'rosterRemove', 'lockoutDevice', 'releaseLockout', 'setNonReclose', 'notify911',
-  'declareEmergency', 'crewDownDrill', 'dispatchWo', 'confirmDead', 'setVoiceRadio', 'setTenCodes', 'voiceTx', 'setTutStep', 'dismissCoach',
+  'declareEmergency', 'crewDownDrill', 'dispatchWo', 'confirmDead', 'setVoiceRadio', 'setTenCodes', 'voiceTx', 'setTutStep', 'dismissCoach', 'exSubmit', 'setHold', 'exFinish', 'exSetStudent', 'fieldSendTo', 'fieldManual', 'fieldJob', 'fieldAssign',
 ]);
 
 export type Msg =
@@ -31,7 +31,7 @@ export type Msg =
   | { type: 'act'; from: string; method: string; args: any[] }
   | { type: 'result'; to: string; text: string }
   | { type: 'sel'; from: string; sel: Sel }
-  | { type: 'goto'; to: string; tab: 'gis' | 'scada' | 'sw'; prefill: { dev: string; action: 'open' | 'close' } | null }
+  | { type: 'goto'; to: string; tab: 'gis' | 'scada' | 'sw' | 'tx'; prefill: { dev: string; action: 'open' | 'close' } | null }
   | { type: 'start'; from: string; id: string; seed: number; emg?: number }
   | { type: 'load'; from: string; state: any };
 

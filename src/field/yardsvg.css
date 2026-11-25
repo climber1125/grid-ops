@@ -1,0 +1,13 @@
+.yardsvg { position: relative; width: 100%; }
+.yardsvg .ys { width: 100%; display: block; background: #10161d; border-radius: 8px; touch-action: none; user-select: none; cursor: grab; }
+.yardsvg .ys.editing { cursor: crosshair; }
+.yardsvg .ys-tools { position: absolute; top: 6px; right: 6px; display: flex; gap: 4px; align-items: center; z-index: 2; }
+.yardsvg .ys-tools button { font: 700 16px system-ui, sans-serif; min-width: 38px; height: 34px; color: #e8edf3; background: rgba(22,28,37,.92); border: 1px solid #3a4658; border-radius: 7px; }
+.yardsvg .ys-hint { font: 11px system-ui, sans-serif; color: #9aa7b6; background: rgba(13,17,23,.8); padding: 3px 6px; border-radius: 5px; }
+.yardsvg text { font-family: ui-monospace, Menlo, Consolas, monospace; paint-order: stroke; stroke: #0a0e14; stroke-width: .25em; stroke-linejoin: round; }
+.yardsvg .ys-pid { fill: #ffe2a8; text-anchor: middle; font-weight: 600; }
+.yardsvg .ys-dev { fill: #cfe3ff; font-weight: 700; }
+.yardsvg .ys-load { fill: #9fd3a8; }
+.yardsvg .ys-area { fill: #e8edf3; text-anchor: middle; font-family: system-ui, sans-serif; font-weight: 700; }
+.yardsvg .ys-crew { fill: #ffd28a; text-anchor: middle; font-weight: 800; }
+.yardsvg .ys-crew.me { fill: #58a6ff; }

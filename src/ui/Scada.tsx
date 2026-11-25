@@ -194,7 +194,7 @@ function DevSym({ id, x, y, sel, onSel, big }: { id: string; x: number; y: numbe
       {d.type === 'switch'
         ? <circle cx={x} cy={y} r={s / 2} fill={fill} stroke={stroke} strokeWidth={2} />
         : <rect x={x - s / 2} y={y - s / 2} width={s} height={s} fill={st.lockout ? '#5a0f0f' : fill} stroke={st.lockout ? '#ff5050' : stroke} strokeWidth={2} />}
-      {(d.type === 'recloser' || d.type === 'breaker') && <text x={x} y={y + 4} textAnchor="middle" fill="#fff" fontSize={big ? 10 : 9} fontWeight={700}>{d.type === 'recloser' ? 'R' : 'CB'}</text>}
+      {(d.type === 'recloser' || d.type === 'breaker' || d.type === 'reg' || d.type === 'cap') && <text x={x} y={y + 4} textAnchor="middle" fill="#fff" fontSize={big ? 10 : 8} fontWeight={700}>{d.type === 'recloser' ? 'R' : d.type === 'reg' ? 'VR' : d.type === 'cap' ? 'C' : 'CB'}</text>}
       {d.type === 'tie' && <text x={x} y={y + 3} textAnchor="middle" fill="#fff" fontSize={7} fontWeight={700}>NO</text>}
       <text x={x + s / 2 + 3} y={y + s / 2 + 11} fill={st.tags.length ? '#ffb347' : '#e6edf4'} fontSize={10} fontWeight={600}>{id}{!st.comm ? ' ?' : ''}</text>
       {d.scada && <text x={x + s / 2 + 3} y={y + s / 2 + 22} fill="#3fb6d3" fontSize={9}>{amps || 'SCADA'}</text>}

@@ -4,6 +4,24 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Firebase web config key is public by design (access is enforced by firestore.rules).
+  SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyBbqail8UNeUICSJeeGCGM1B3KUaEhnvRM"
 
 [functions]
   directory = "netlify/functions"
+
+# Crew phone app and NFC/QR tag links open the single-page app.
+[[redirects]]
+  from = "/t/*"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/field"
+  to = "/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/field/*"
+  to = "/index.html"
+  status = 200

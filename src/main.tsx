@@ -1,10 +1,17 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './ui/App';
-import './ui/styles.css';
+import { initYard } from './field/yardStore';
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+// Crew phones (/field, /t/<device>) load only the small field app, not the console.
+const isField = /^\/(field|t)(\/|$)/.test(window.location.pathname);
+const FieldApp = lazy(() => import('./field/FieldApp'));
+const ConsoleApp = lazy(() => import('./ui/App'));
+
+// The edited Texas yard has to be in place before the network is built.
+initYard().finally(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <Suspense fallback={null}>{isField ? <FieldApp /> : <ConsoleApp />}</Suspense>
+    </React.StrictMode>,
+  );
+});

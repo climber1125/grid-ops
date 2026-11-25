@@ -13,13 +13,15 @@ export interface Ctx {
   setSel(s: Sel): void;
   openSbo(r: SboReq): void;
   flyTo(pos: LatLng, zoom?: number): void;
-  setTab(t: 'gis' | 'scada' | 'sw'): void;
+  setTab(t: 'gis' | 'scada' | 'sw' | 'tx'): void;
   swPrefill: { dev: string; action: 'open' | 'close' } | null;
   setSwPrefill(p: { dev: string; action: 'open' | 'close' } | null): void;
   flash(text: string, level?: 'info' | 'warn' | 'alarm' | 'good'): void;
   /** Voice radio is on and working: radio traffic must be spoken, not clicked. */
   voiceReq: boolean;
   ptt: Ptt;
+  /** Field session link status (main console only). */
+  fieldLink?: import('../field/useFieldLink').LinkStatus | null;
 }
 
 export const EngineCtx = createContext<Ctx>(null as unknown as Ctx);
