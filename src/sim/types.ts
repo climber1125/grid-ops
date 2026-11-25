@@ -136,6 +136,7 @@ export interface ToCrew {
   audio?: string; mime?: string; dur?: number;
   /** Job (work order) messages: job id, pole, its status, and whether it needs a clearance. */
   job?: string; pole?: string; jobStatus?: JobStatus; needsClearance?: boolean;
+  needsBrief?: boolean; briefStatus?: 'sent' | 'approved' | 'returned'; briefNote?: string; trouble?: boolean; revealed?: boolean;
   dev?: string; action?: SwAction; order?: string; step?: number; loop?: boolean;
   /** issued → (repeat) → cleared → done; or cancelled. Clearance: issued → released. */
   state: 'issued' | 'repeat' | 'cleared' | 'done' | 'cancelled' | 'released';
@@ -144,7 +145,9 @@ export interface ToCrew {
 /** Crew → operator event. */
 export interface FromCrew {
   id: string; truck: string; t: number; uid?: string;
-  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job' | 'radio';
+  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job' | 'radio' | 'brief';
+  /** kind 'brief': the crew's job brief for `job`. */
+  brief?: JobBrief;
   /** Radio: recorded voice clip (data URL), its type and length in seconds; sentAt = phone wall clock (ms). */
   audio?: string; mime?: string; dur?: number; sentAt?: number;
   /** kind 'job': which job and what the crew did. */
@@ -166,13 +169,27 @@ export interface FieldState {
   /** Yard work orders for real crews (crossarm change-outs, guying). */
   jobs?: Record<string, FieldJob>;
 }
-export type JobKind = 'crossarm' | 'guy' | 'other';
+export type JobKind = 'crossarm' | 'guy' | 'other' | 'trouble';
+/** Crew's job brief (tailboard) sent from the phone; control approves it before work starts. */
+export interface JobBrief {
+  hazards: string[]; ppe: string[];
+  isolation: string; grounding: string; method: string;
+  /** Switching the crew is asking control for, in order. */
+  steps: { dev: string; action: SwAction }[];
+  crew: string[]; notes?: string;
+}
 export type JobStatus = 'Open' | 'Assigned' | 'Acknowledged' | 'En route' | 'On site' | 'Working' | 'Complete' | 'Cancelled';
 export interface FieldJob {
   id: string; kind: JobKind; pole: string; text: string;
   truck?: string; status: JobStatus;
   /** Pole is on the perimeter line / URD — crew must hold a clearance covering it before work. */
   needsClearance: boolean;
+  /** Crew must send a job brief and control must approve it before work starts. */
+  needsBrief?: boolean;
+  brief?: JobBrief; briefStatus?: 'sent' | 'approved' | 'returned'; briefNote?: string;
+  /** Trouble call: the crew is sent to a location blind; details show when they scan the tag there. */
+  trouble?: { call: string; reveal: string; fault?: string; template: string };
+  revealed?: boolean;
   created: number; doneT?: number;
   log: { t: number; text: string }[];
 }

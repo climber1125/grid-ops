@@ -6,6 +6,7 @@ import type { Engine } from '../sim/engine';
 import { yardSnapshot } from '../sim/field';
 import { getBackend } from './backend';
 import { addRadio } from './radioStore';
+import { chirp } from './fieldRadio';
 
 export interface LinkStatus { ok: boolean; err: string | null; lastSent: number; lastHeard: number; kind: 'firebase' | 'local'; }
 
@@ -18,6 +19,7 @@ export function useFieldLink(e: Engine, isMaster: boolean): LinkStatus | null {
     let status: LinkStatus = { ok: true, err: null, lastSent: 0, lastHeard: 0, kind: be.kind };
     const set = (p: Partial<LinkStatus>) => { status = { ...status, ...p }; setSt(status); };
     set({});
+    const started = Date.now();
     const un = be.onFromCrew(code, ev => {
       if (ev.kind === 'radio') {
         const at = typeof ev.sentAt === 'number' ? ev.sentAt : Date.now();
@@ -27,6 +29,8 @@ export function useFieldLink(e: Engine, isMaster: boolean): LinkStatus | null {
         return;
       }
       const r = e.fieldEvent(ev);
+      // Ping the operator when a crew checks in at a tag or sends a brief (not for replays on reload).
+      if (Date.now() - started > 4000 && !r && (ev.kind === 'brief' || (ev.kind === 'status' && ev.status === 'On site'))) chirp();
       if (r) console.info('field event', ev.kind, ev.truck, '→', r);
       set({ lastHeard: Date.now() });
     });

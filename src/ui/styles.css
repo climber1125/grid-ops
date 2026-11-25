@@ -490,3 +490,5 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 .fradio .fr-item { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
 .fradio .fr-item.in b { color: #ffd28a; }
 .fradio .fr-item.out b { color: #8ab4ff; }
+.brief-card { border: 1px solid #5a4a1a; border-radius: 6px; padding: 6px 8px; margin: 6px 0; font-size: 12px; background: rgba(60,45,10,.2); display: flex; flex-direction: column; gap: 2px; }
+.brief-card.approved { border-color: #2f6d43; background: rgba(16,48,28,.3); }

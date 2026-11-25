@@ -57,17 +57,29 @@ export function poleNode(e: Engine, pole: string): string | null {
 const where = (at: string) => (ALL_POLES[at] ? `pole ${at}${areaOfPole(at) ? ` (${areaOfPole(at)!.name})` : ''}` : at);
 
 // ── Yard jobs (crossarm change-outs, guying) ────────────────
-const JOB_TEXT: Record<JobKind, string> = { crossarm: 'Crossarm change-out', guy: 'Guy wire tensioning', other: 'Work' };
+const JOB_TEXT: Record<JobKind, string> = { crossarm: 'Crossarm change-out', guy: 'Guy wire tensioning', other: 'Work', trouble: 'Trouble call' };
 export const jobs = (e: Engine) => (fieldState(e).jobs ??= {});
 function jobMsg(e: Engine, j: FieldJob) {
   if (!j.truck) return;
-  fieldSend(e, { id: `JOB-${j.id}`, truck: j.truck, kind: 'job', job: j.id, pole: j.pole, jobStatus: j.status, needsClearance: j.needsClearance, state: j.status === 'Complete' ? 'done' : j.status === 'Cancelled' ? 'cancelled' : 'issued', text: `${j.id}: ${j.text} at ${where(j.pole)}${j.needsClearance ? ' — ON THE LINE: clearance required before work' : ''}` });
+  const hidden = j.trouble && !j.revealed;
+  const text = hidden ? `${j.id}: ${j.trouble!.call}`
+    : j.trouble ? `${j.id}: ${j.trouble.reveal}`
+      : `${j.id}: ${j.text} at ${where(j.pole)}${j.needsClearance ? ' — ON THE LINE: clearance required before work' : ''}`;
+  fieldSend(e, {
+    id: `JOB-${j.id}`, truck: j.truck, kind: 'job', job: j.id, pole: j.pole, jobStatus: j.status,
+    needsClearance: hidden ? false : j.needsClearance, needsBrief: hidden ? false : !!j.needsBrief,
+    ...(j.briefStatus ? { briefStatus: j.briefStatus } : {}), ...(j.briefNote ? { briefNote: j.briefNote } : {}),
+    ...(j.trouble ? { trouble: true, revealed: !!j.revealed } : {}),
+    state: j.status === 'Complete' ? 'done' : j.status === 'Cancelled' ? 'cancelled' : 'issued', text,
+  });
 }
 function jobLog(e: Engine, j: FieldJob, text: string) { j.log.push({ t: e.s.t, text }); }
 export function fieldNewJob(e: Engine, kind: JobKind, pole: string, note = ''): FieldJob | string {
   if (!ALL_POLES[pole]) return `Unknown pole ${pole}`;
-  const id = `YW-${String(Object.keys(jobs(e)).length + 101)}`;
-  const j: FieldJob = { id, kind, pole, text: `${JOB_TEXT[kind]}${note ? ` — ${note}` : ''}`, status: 'Open', needsClearance: isLinePole(pole), created: e.s.t, log: [] };
+  // Yard work orders are YW-101…, trouble calls TC-1… (so the scenario's YW numbers stay put)
+  const pre = kind === 'trouble' ? 'TC-' : 'YW-';
+  const id = `${pre}${Object.keys(jobs(e)).filter(k => k.startsWith(pre)).length + (kind === 'trouble' ? 1 : 101)}`;
+  const j: FieldJob = { id, kind, pole, text: `${JOB_TEXT[kind]}${note ? ` — ${note}` : ''}`, status: 'Open', needsClearance: isLinePole(pole), needsBrief: isLinePole(pole), created: e.s.t, log: [] };
   jobs(e)[id] = j;
   jobLog(e, j, 'Created');
   e.log('OMS', 'info', `Yard work order ${id}: ${j.text} at ${where(pole)}${j.needsClearance ? ' — on the line, needs switching and a clearance' : ''}`);
@@ -88,6 +100,86 @@ export function fieldAssignJob(e: Engine, jobId: string, truck: string): string 
   e.decision(`Assigned ${jobId} to field crew ${truck}`);
   return null;
 }
+// ── Trouble calls (blind dispatch) ──────────────────────────
+export const TROUBLE_TEMPLATES: Record<string, { name: string; poles: (e: Engine) => string[] }> = {
+  padxfmr: { name: 'Failed pad-mount transformer (URD)', poles: e => Object.keys(ALL_POLES).filter(p => p.startsWith('U') && !!yardLoadAt(e, p)) },
+  crossarm: { name: 'Broken crossarm / insulator on the line (line trips)', poles: e => Object.keys(ALL_POLES).filter(p => isLinePole(p) && !p.startsWith('U') && !!spanInto(e, p)) },
+};
+function yardLoadAt(e: Engine, pole: string): string | null {
+  const n = poleNode(e, pole); if (!n) return null;
+  return e.T.loadIds.find(l => e.T.loads[l].feeder.startsWith('TX') && (e.T.els[e.T.loads[l].xfmr] as DevEl)?.from === n) ?? null;
+}
+function spanInto(e: Engine, pole: string): string | undefined {
+  for (const fid of ['TX-4110', 'TX-4120']) {
+    const el = e.T.feeders[fid]?.mainEls.find(x => (e.T.els[x] as LineEl & { loc?: string }).loc?.endsWith(`–${pole}`));
+    if (el) return el;
+  }
+  return undefined;
+}
+export function fieldNewTrouble(e: Engine, template: string, pole: string): FieldJob | string {
+  const tp = TROUBLE_TEMPLATES[template];
+  if (!tp) return `Unknown trouble type ${template}`;
+  if (!tp.poles(e).includes(pole)) return `${tp.name} can't go at ${pole}`;
+  const j = fieldNewJob(e, 'trouble', pole);
+  if (typeof j === 'string') return j;
+  j.needsClearance = true; j.needsBrief = true;
+  if (template === 'padxfmr') {
+    const lid = yardLoadAt(e, pole)!;
+    const L = e.T.loads[lid];
+    const f = e.createFault(lid, true, 'xfmr_failure', true); e.applyFault(f);
+    j.text = `Trouble: ${L.name} out — failed pad-mount transformer`;
+    j.trouble = {
+      template, fault: f.id,
+      call: `Trouble call — respond to pole ${pole} (URD). Details when you scan the tag on site.`,
+      reveal: `${L.name} at ${pole} is out of power. Oil on the pad, the cabinet is hot and smells burnt, the transformer fuse is blown — the pad-mount transformer has failed. Make it safe and replace it: job brief, switching with control, clearance, replace, restore.`,
+    };
+  } else {
+    const el = spanInto(e, pole);
+    if (!el) return `No span into ${pole}`;
+    const f = e.createFault(el, false, 'insulator', true); e.applyFault(f);
+    j.text = `Trouble: broken crossarm / insulator at ${pole}`;
+    j.trouble = {
+      template, fault: f.id,
+      call: `Trouble call — patrol to pole ${pole} on the perimeter line. Details when you scan the tag on site.`,
+      reveal: `At ${pole}: the crossarm is split and the insulator has flashed over — the conductor is down on the arm. This is what tripped the line. Make it safe and repair it: job brief, switching with control, clearance, repair, restore.`,
+    };
+  }
+  j.log.push({ t: e.s.t, text: `Trouble created: ${tp.name}` });
+  e.log('OMS', 'alarm', `${j.id}: trouble call at ${where(pole)} — send a field crew (they get the details when they scan the tag there).`);
+  e.bump();
+  return j;
+}
+function reveal(e: Engine, tr: Truck, j: FieldJob) {
+  if (!j.trouble || j.revealed) return;
+  j.revealed = true;
+  jobLog(e, j, `${tr.id} scanned in at ${j.pole} — call revealed`);
+  e.log('DISPATCH', 'alarm', `📍 Field crew ${tr.id} is ON SITE at ${where(j.pole)} (tag scan) — ${j.id} details sent to their phone: ${j.text}`);
+  e.decision(`Field crew ${tr.id} on site at ${j.pole} for ${j.id}`);
+}
+
+// ── Job briefs ──────────────────────────────────────────────
+export function fieldBriefDecision(e: Engine, jobId: string, ok: boolean, note = ''): string | null {
+  const j = jobs(e)[jobId]; if (!j?.brief) return 'No brief to review';
+  j.briefStatus = ok ? 'approved' : 'returned'; j.briefNote = note || undefined;
+  jobLog(e, j, ok ? 'Brief approved by control' : `Brief returned: ${note}`);
+  e.log('DISPATCH', ok ? 'good' : 'warn', `${jobId} job brief ${ok ? 'approved' : `returned to Truck ${j.truck}${note ? ` — ${note}` : ''}`}`);
+  e.decision(`${ok ? 'Approved' : 'Returned'} ${jobId} job brief`);
+  jobMsg(e, j); e.bump();
+  return null;
+}
+/** Turn the switching steps in a crew's brief into a draft order for control to review. */
+export function fieldOrderFromBrief(e: Engine, jobId: string): string {
+  const j = jobs(e)[jobId];
+  if (!j?.brief?.steps.length) return 'The brief has no switching steps';
+  const bad = j.brief.steps.find(st => !e.T.els[st.dev]);
+  if (bad) return `Unknown device ${bad.dev} in the brief`;
+  const o = e.newOrder(`${jobId} ${j.trouble ? 'trouble' : 'work'} at ${j.pole} — crew request (Truck ${j.truck})`, j.brief.steps.map(st => ({ dev: st.dev, action: st.action, exec: j.truck!, loop: st.action === 'close' && !!(e.T.els[st.dev] as DevEl).normalOpen })));
+  jobLog(e, j, `Switching order ${o.id} drafted from the crew's brief`);
+  e.log('DISPATCH', 'info', `${o.id} drafted from ${jobId} job brief — review it in Switching & clearances, then activate.`);
+  e.bump();
+  return o.id;
+}
+
 function clearanceCovers(e: Engine, truck: string, pole: string): boolean {
   const n = poleNode(e, pole);
   if (!n) return true;
@@ -97,6 +189,11 @@ function jobStep(e: Engine, tr: Truck, j: FieldJob, st: 'ack' | 'working' | 'com
   if (j.truck !== tr.id) return `${j.id} is not assigned to ${tr.id}`;
   if (st === 'ack') { if (j.status === 'Assigned') { j.status = 'Acknowledged'; jobLog(e, j, `${tr.id} acknowledged`); e.log('DISPATCH', 'info', `Field crew ${tr.id} acknowledged ${j.id}`); } }
   else if (st === 'working') {
+    if (j.needsBrief && j.briefStatus !== 'approved') {
+      fieldSend(e, { id: `${tr.id}-NB${e.s.seq++}`, truck: tr.id, kind: 'info', state: 'issued', text: `Send your job brief for ${j.id} and wait for control to approve it before you start.` });
+      e.bump();
+      return 'Brief not approved';
+    }
     if (j.needsClearance && !clearanceCovers(e, tr.id, j.pole)) {
       e.violation('field-noclear', `Field crew ${tr.id} tried to start ${j.id} on line pole ${j.pole} without a clearance covering it`);
       fieldSend(e, { id: `${tr.id}-NC${e.s.seq++}`, truck: tr.id, kind: 'info', state: 'issued', text: `STOP — ${j.pole} is on the line. Request a clearance and wait for it before you start ${j.id}.` });
@@ -182,7 +279,7 @@ export function fieldReleaseAck(e: Engine, tr: Truck, clId: string) {
       if (!f.active) continue;
       const el = e.T.els[f.el] as LineEl | undefined;
       const inside = f.onLoad ? ns.has(e.T.loads[f.el]?.node) : !!el && (ns.has(el.from) || ns.has(el.to));
-      if (inside) { f.active = false; e.log('OMS', 'good', `${f.id} repaired by field crew ${tr.id} under ${clId}`); if (f.incident && e.s.incidents[f.incident]) e.s.incidents[f.incident].timeline.push({ t: e.s.t, text: `Field crew ${tr.id}: repairs complete, released ${clId}` }); }
+      if (inside) { f.active = false; if (f.onLoad) { const L = e.T.loads[f.el]; if (L && e.s.dev[L.xfmr]) e.s.dev[L.xfmr].open = false; } e.log('OMS', 'good', `${f.id} repaired by field crew ${tr.id} under ${clId}`); if (f.incident && e.s.incidents[f.incident]) e.s.incidents[f.incident].timeline.push({ t: e.s.t, text: `Field crew ${tr.id}: repairs complete, released ${clId}` }); }
     }
   }
   fieldSend(e, { id: `${tr.id}-${clId}`, truck: tr.id, kind: 'clearance', clearance: clId, state: 'released', text: `Clearance ${clId} released at ${e.hhmm()}, tags removed. Stand by for restoration switching.` });
@@ -235,6 +332,7 @@ export function fieldApply(e: Engine, ev: FromCrew): string | null {
       e.log('DISPATCH', 'info', `Field crew ${truck}: ${where}`);
       for (const j of Object.values(jobs(e))) if (j.truck === truck && !['Complete', 'Cancelled', 'Working'].includes(j.status)) {
         const ns: JobStatus | null = status === 'On site' && tr.field.at === j.pole ? 'On site' : status === 'En route' && tr.field.dest === j.pole ? 'En route' : null;
+        if (ns === 'On site') reveal(e, tr, j);
         if (ns && ns !== j.status) { j.status = ns; jobLog(e, j, `${truck} ${ns.toLowerCase()}`); jobMsg(e, j); }
       }
       // A dispatch is done once they're on site where they were sent.
@@ -321,6 +419,17 @@ export function fieldApply(e: Engine, ev: FromCrew): string | null {
       if (!j || !ev.jstep) return 'Unknown job';
       tr.field.lastT = e.s.t;
       return jobStep(e, tr, j, ev.jstep);
+    }
+    case 'brief': {
+      if (!tr?.field) return 'Not a field crew';
+      const j = ev.job ? jobs(e)[ev.job] : undefined;
+      if (!j || j.truck !== truck || !ev.brief) return 'Unknown job';
+      j.brief = ev.brief; j.briefStatus = 'sent'; j.briefNote = undefined;
+      tr.field.lastT = e.s.t;
+      jobLog(e, j, `${truck} sent the job brief`);
+      e.log('DISPATCH', 'alarm', `📋 Job brief from Truck ${truck} for ${j.id} — review and approve it in the Field tab${ev.brief.steps.length ? ` (asks for ${ev.brief.steps.length} switching step${ev.brief.steps.length > 1 ? 's' : ''})` : ''}`);
+      jobMsg(e, j); e.bump();
+      return null;
     }
     case 'radio': {
       if (tr?.field) tr.field.lastT = e.s.t;
