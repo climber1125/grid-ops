@@ -85,7 +85,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       L.marker(yardLL(c), { pane: 'rlbl', interactive: false, icon: L.divIcon({ className: '', html: `<div class="yarea" style="transform:translate(-50%,-50%)">${a.name}</div>`, iconSize: [0, 0] }) }).addTo(yardGroup);
       for (const [id, p] of Object.entries(a.poles)) {
         const job = JOB_POLES.includes(id);
-        L.circleMarker(yardLL(p), { renderer: rBase, radius: job ? 4.5 : 3.2, color: '#ffffff', weight: job ? 1.5 : 0.8, fillColor: a.electric ? '#0d1117' : '#e8a53a', fillOpacity: 1, interactive: false }).bindTooltip(id).addTo(yardGroup);
+        L.circleMarker(yardLL(p), { renderer: rBase, radius: job ? 5.5 : 4.5, color: a.electric ? '#0b0f14' : '#fff4dc', weight: a.electric ? 2 : 1.2, fillColor: a.electric ? '#f2f5f8' : '#f0a92e', fillOpacity: 1, interactive: false }).bindTooltip(id).addTo(yardGroup);
       }
     }
 

@@ -149,10 +149,15 @@ export function YardSvg({ doc, snap, me, highlight, edit, height = '60vh', label
         })}
         {Object.entries(P).map(([id, p]) => {
           const line = p.area === 'LINE', a = areaOf(id), hot = highlight?.has(id), sel = edit?.selected === id || edit?.pending === id;
-          const rad = r(hot || sel ? 5 : p.job ? 4 : line ? 3.2 : 3);
-          return <circle key={id} cx={p.xy[0]} cy={p.xy[1]} r={rad} data-pole={id}
-            fill={line || a?.electric ? '#0d1117' : '#e8a53a'} stroke={sel ? '#ffd33d' : hot ? '#58a6ff' : '#fff'} strokeWidth={r(sel || hot ? 2 : p.job ? 1.4 : 0.8)}
-            style={{ cursor: edit ? 'pointer' : undefined }} />;
+          // Texas Ops look: line / electrical poles = white dot in a black ring, work poles = orange dot.
+          const elec = line || a?.electric;
+          const rad = Math.max(r(hot || sel ? 6.5 : p.job ? 5.5 : 4.6), 1.6);
+          return <g key={id}>
+            <circle cx={p.xy[0]} cy={p.xy[1]} r={rad} data-pole={id}
+              fill={elec ? '#f2f5f8' : '#f0a92e'} stroke={sel ? '#ffd33d' : hot ? '#58a6ff' : elec ? '#0b0f14' : '#fff4dc'} strokeWidth={Math.max(r(sel || hot ? 2.6 : elec ? 2.2 : 1.4), 0.5)}
+              style={{ cursor: edit ? 'pointer' : undefined }} />
+            {p.job && !sel && !hot && <circle cx={p.xy[0]} cy={p.xy[1]} r={rad + r(2.2)} fill="none" stroke="#58a6ff" strokeOpacity={0.7} strokeWidth={r(1.2)} pointerEvents="none" />}
+          </g>;
         })}
         {doc.links.filter(l => l.dev).map(l => { const xy = devAt(l), st = snap?.dev[l.dev!.id], s = r(7); return <g key={l.dev!.id} pointerEvents="none">
           <rect x={xy[0] - s / 2} y={xy[1] - s / 2} width={s} height={s} fill={DEV_COLOR(st)} stroke="#fff" strokeWidth={r(1)} />
