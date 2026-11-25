@@ -5,6 +5,7 @@ import type { Engine } from '../sim/engine';
 import type { ToCrew } from '../sim/types';
 import { getBackend } from './backend';
 import { chirp, playClip, type Clip } from './fieldRadio';
+import { pushToCrews } from './push';
 
 export interface RadioItem { id: string; from: string; to: string; at: number; clock: string; text?: string; audio?: string; mime?: string; dur?: number; }
 let items: RadioItem[] = [];
@@ -35,6 +36,7 @@ export async function sendRadio(e: Engine, to: string, msg: { text?: string } & 
   const base = `R${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
   const out: ToCrew[] = trucks.map(t => ({ id: `${base}-${t}`, truck: t, t: e.s.t, kind: 'radio', state: 'issued', text: msg.text ?? '', ...(msg.audio ? { audio: msg.audio, mime: msg.mime, dur: msg.dur } : {}) }));
   await getBackend().sendToCrew(f.code, out);
+  pushToCrews(f.code, trucks, { title: '📻 Sparks Control', body: msg.text ? msg.text : `Voice message (${Math.round(msg.dur ?? 0)}s) — tap to play`, tag: 'radio' });
   addRadio({ id: base, from: 'OPS', to, at: Date.now(), clock: e.hhmm(), text: msg.text, audio: msg.audio, mime: msg.mime, dur: msg.dur }, false);
   e.log('RADIO', 'info', `Sparks Control → ${to === 'ALL' ? 'all field crews' : `field crew ${to}`}: ${msg.audio ? `🎙 voice ${Math.round(msg.dur ?? 0)}s` : ''}${msg.text ? `${msg.audio ? ' — ' : ''}"${msg.text}"` : ''}`);
 }

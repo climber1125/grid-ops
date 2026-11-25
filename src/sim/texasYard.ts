@@ -27,6 +27,22 @@ export const CAL: { a: { pole: string; xy: XY; ll: LatLng }; b: { pole: string; 
   return { a: { pole: 'L1', xy: A, ll: ll(A) }, b: { pole: 'L25', xy: B, ll: ll(B) }, measured: false };
 })();
 
+const DEFAULT_CAL = JSON.parse(JSON.stringify(CAL)) as typeof CAL;
+
+/** lat/lng → screen units (inverse of yardLL), e.g. to put a phone's GPS fix on the yard drawing. */
+export function yardXY([lat, lng]: LatLng): XY {
+  const { a, b } = CAL;
+  const k = Math.cos((a.ll[0] * Math.PI) / 180);
+  const pA = [a.ll[1] * k, a.ll[0]], pB = [b.ll[1] * k, b.ll[0]];
+  const sA = [a.xy[0], -a.xy[1]], sB = [b.xy[0], -b.xy[1]];
+  const ds = [sB[0] - sA[0], sB[1] - sA[1]], dp = [pB[0] - pA[0], pB[1] - pA[1]];
+  const L2 = dp[0] * dp[0] + dp[1] * dp[1];
+  const re = (ds[0] * dp[0] + ds[1] * dp[1]) / L2, im = (ds[1] * dp[0] - ds[0] * dp[1]) / L2;
+  const v = [lng * k - pA[0], lat - pA[1]];
+  const sx = sA[0] + re * v[0] - im * v[1], sy = sA[1] + im * v[0] + re * v[1];
+  return [sx, -sy];
+}
+
 /** Screen units → lat/lng (similarity transform through the two CAL poles). */
 export function yardLL([x, y]: XY): LatLng {
   const { a, b } = CAL;
@@ -238,6 +254,8 @@ export interface YardDoc {
   v: 1;
   /** 2 = has the URD load-break elbows. */
   rev?: number;
+  /** GPS of two poles, measured on the yard with a phone — locks the drawing onto the ground. */
+  cal?: { a: { pole: string; ll: LatLng }; b: { pole: string; ll: LatLng }; at?: string };
   poles: Record<string, YardDocPole>;
   links: YardDocLink[];
   loads: Record<string, { name: string; kw: number; critical?: boolean }>;
@@ -306,6 +324,12 @@ export function applyYardDoc(doc: YardDoc, edited = true) {
   const d = clone(doc);
   if (checkYardDoc(d).length) return false;
   CURRENT = d; yardEdited = edited;
+  // GPS calibration: two measured poles, else the screenshot estimate
+  if (d.cal && d.poles[d.cal.a.pole] && d.poles[d.cal.b.pole]) {
+    CAL.a = { pole: d.cal.a.pole, xy: [...d.poles[d.cal.a.pole].xy] as XY, ll: [...d.cal.a.ll] as LatLng };
+    CAL.b = { pole: d.cal.b.pole, xy: [...d.poles[d.cal.b.pole].xy] as XY, ll: [...d.cal.b.ll] as LatLng };
+    CAL.measured = true;
+  } else { CAL.a = JSON.parse(JSON.stringify(DEFAULT_CAL.a)); CAL.b = JSON.parse(JSON.stringify(DEFAULT_CAL.b)); CAL.measured = false; }
   const clear = (o: Record<string, unknown>) => { for (const k of Object.keys(o)) delete o[k]; };
   clear(LINE_POLES); clear(ALL_POLES);
   for (const a of YARD_AREAS) clear(a.poles);

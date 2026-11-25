@@ -56,6 +56,18 @@ export function poleNode(e: Engine, pole: string): string | null {
 }
 const where = (at: string) => (ALL_POLES[at] ? `pole ${at}${areaOfPole(at) ? ` (${areaOfPole(at)!.name})` : ''}` : at);
 
+// ── GPS (phone reports while the crew app is open) ──────────
+export const GPS_STALE_MS = 2 * 60_000;
+export const gpsFresh = (tr: Truck) => !!tr.field?.gps && Date.now() - tr.field.gps.at < GPS_STALE_MS;
+export function fieldGps(e: Engine, truck: string, g: { lat: number; lng: number; acc: number; at: number }) {
+  const tr = e.s.trucks[truck];
+  if (!tr?.field || !Number.isFinite(g.lat) || !Number.isFinite(g.lng)) return;
+  if (tr.field.gps && tr.field.gps.at >= g.at) return;
+  tr.field.gps = { lat: g.lat, lng: g.lng, acc: Math.round(g.acc), at: g.at };
+  if (Date.now() - g.at < GPS_STALE_MS) tr.pos = [g.lat, g.lng];
+  e.bump();
+}
+
 // ── Yard jobs (crossarm change-outs, guying) ────────────────
 const JOB_TEXT: Record<JobKind, string> = { crossarm: 'Crossarm change-out', guy: 'Guy wire tensioning', other: 'Work', trouble: 'Trouble call' };
 export const jobs = (e: Engine) => (fieldState(e).jobs ??= {});
@@ -323,7 +335,8 @@ export function fieldApply(e: Engine, ev: FromCrew): string | null {
       tr.field.status = status; tr.field.lastT = e.s.t;
       if (ev.at !== undefined) tr.field.at = ev.at;
       if (ev.dest !== undefined) tr.field.dest = ev.dest;
-      if (status === 'En route') {
+      if (gpsFresh(tr)) { /* the phone's GPS places the truck */ }
+      else if (status === 'En route') {
         const to = posOf(e, tr.field.dest ?? tr.field.at);
         tr.pos = [(prevPos[0] + to[0]) / 2, (prevPos[1] + to[1]) / 2];
       } else tr.pos = posOf(e, tr.field.at);
@@ -463,7 +476,7 @@ export function yardSnapshot(e: Engine) {
     const m = L.loc?.match(/^Span (\S+)–(\S+)$/);
     if (m) spans[[m[1], m[2]].sort().join('|')] = live[el];
   }
-  const trucks: Record<string, { status: string; at: string; dest?: string }> = {};
-  for (const tr of Object.values(e.s.trucks)) if (tr.field) trucks[tr.id] = { status: tr.field.status, at: tr.field.at, ...(tr.field.dest ? { dest: tr.field.dest } : {}) };
+  const trucks: Record<string, { status: string; at: string; dest?: string; gps?: { lat: number; lng: number; acc: number; at: number } }> = {};
+  for (const tr of Object.values(e.s.trucks)) if (tr.field) trucks[tr.id] = { status: tr.field.status, at: tr.field.at, ...(tr.field.dest ? { dest: tr.field.dest } : {}), ...(tr.field.gps ? { gps: tr.field.gps } : {}) };
   return { dev, live, spans, t: e.s.t, clock: e.hhmm(), trucks };
 }

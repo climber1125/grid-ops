@@ -60,7 +60,7 @@ export function FieldPanel() {
 
       <div style={{ flex: 1, minWidth: 380 }}>
         <table className="grid">
-          <thead><tr><th>Unit</th><th>Foreman / crew</th><th>Status</th><th>At</th><th>Sent to</th><th>Updated</th></tr></thead>
+          <thead><tr><th>Unit</th><th>Foreman / crew</th><th>Status</th><th>At</th><th>Sent to</th><th>GPS</th><th>Updated</th></tr></thead>
           <tbody>
             {crews.length ? crews.map(t => (
               <tr key={t.id} className="row" onClick={() => { setSel({ kind: 'truck', id: t.id }); flyTo(t.pos, 18); setTruck(t.id); }}>
@@ -69,9 +69,10 @@ export function FieldPanel() {
                 <td><span className={`chip ${t.status.replace(/\s+/g, '')}`}>{t.field!.status}</span></td>
                 <td className="mono">{t.field!.at === 'yard' ? 'Yard' : t.field!.at}</td>
                 <td className="mono">{t.field!.dest ?? '—'}</td>
+                <td className="mono">{t.field!.gps ? (() => { const a = (Date.now() - t.field!.gps!.at) / 1000; return <span className={a < 60 ? 'c-green' : a < 120 ? 'c-amber' : 'dim'}>±{t.field!.gps!.acc} m · {a < 60 ? `${Math.round(a)}s` : `${Math.round(a / 60)} min`} ago</span>; })() : <span className="dim">—</span>}</td>
                 <td className="mono dim">{age(e.s.t - t.field!.lastT)} ago</td>
               </tr>
-            )) : <tr><td colSpan={6} className="dim">Waiting for crews to join with code {f.code}…</td></tr>}
+            )) : <tr><td colSpan={7} className="dim">Waiting for crews to join with code {f.code}…</td></tr>}
           </tbody>
         </table>
 

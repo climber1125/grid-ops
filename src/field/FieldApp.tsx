@@ -13,6 +13,9 @@ import {
 } from '../sim/texasYard';
 import { YardSvg } from './YardSvg';
 import { canRecord, chirp, playClip, startRec, MAX_SEC, type Rec } from './fieldRadio';
+import { enablePush, pushState, refreshPush, installMeta, isIOS, type PushState } from './push';
+import { saveYard } from './yardStore';
+import { CAL } from '../sim/texasYard';
 import { cleanCode, getBackend, useLocalBackend, type YardSnap } from './backend';
 import './field.css';
 
@@ -31,6 +34,7 @@ const evId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slic
 export default function FieldApp() {
   const path = location.pathname;
   useLocalBackend(); // remember ?fieldlocal
+  useEffect(() => { installMeta(); }, []);
   if (path.startsWith('/field/tags')) return <TagLabels />;
   const tagId = path.startsWith('/t/') ? decodeURIComponent(path.slice(3)).toUpperCase().replace(/\/$/, '') : null;
   const how = new URLSearchParams(location.search).get('s') === 'q' ? 'qr' : 'nfc';
@@ -61,6 +65,9 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
   const radioSeen = useRef<Set<string> | null>(null);
   const [unheard, setUnheard] = useState<ToCrew | null>(null);
   const [briefFor, setBriefFor] = useState<string | null>(null);
+  const [push, setPush] = useState<PushState>('off');
+  useEffect(() => { pushState().then(setPush); if (me) refreshPush(me.code, me.truck); }, [me?.code, me?.truck]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gps = useGps(me);
   const be = getBackend();
 
   useEffect(() => {
@@ -130,6 +137,16 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
         <div><b>Truck {me.truck}</b> <span className="dim">· {me.foreman}</span></div>
         <div className="dim mono">{me.code}{be.kind === 'local' ? ' · LOCAL TEST' : ''}{snap ? ` · ${snap.clock}` : ''}</div>
       </header>
+      <div className="fa-chips">
+        <button className={`fa-chip ${gps.state === 'on' ? 'ok' : gps.state === 'off' ? '' : 'bad'}`} onClick={() => gps.toggle()}>📍 {gps.state === 'on' ? `GPS ±${gps.acc ?? '?'} m` : gps.state === 'waiting' ? 'GPS…' : gps.state === 'denied' ? 'GPS blocked' : gps.state === 'unavailable' ? 'No GPS' : 'GPS off'}</button>
+        <button className={`fa-chip ${push === 'on' ? 'ok' : push === 'local' ? '' : 'bad'}`} onClick={async () => setPush(await enablePush(me.code, me.truck).catch(() => 'off' as PushState))}>🔔 {push === 'on' ? 'Alerts on' : push === 'local' ? 'Alerts (test mode)' : push === 'denied' ? 'Alerts blocked' : push === 'needs-install' ? 'Install for alerts' : push === 'unsupported' ? 'No alerts here' : 'Turn on alerts'}</button>
+      </div>
+      {push === 'needs-install' && !tag && <div className="fa-card info">
+        <b>Get call-outs with the app closed (iPhone):</b> tap the <b>Share</b> button, choose <b>Add to Home Screen</b>, then open <b>Sparks Field</b> from the new icon and tap <b>🔔 Turn on alerts</b>. You'll need to join once more in the installed app.
+      </div>}
+      {push === 'off' && !tag && <div className="fa-card info"><b>Turn on alerts</b> so dispatches, steps, clearances and radio calls buzz this phone even when the app is closed. <button className="fa-btn pri" onClick={async () => setPush(await enablePush(me.code, me.truck).catch(() => 'off' as PushState))}>🔔 Turn on alerts</button></div>}
+      {push === 'denied' && !tag && <div className="fa-card info">Alerts are blocked for this site. Turn notifications on for it in the phone's settings{isIOS() ? ' (Settings → Notifications → Sparks Field)' : ' (Chrome → Site settings → Notifications)'}, then tap 🔔.</div>}
+      {gps.state === 'denied' && !tag && <div className="fa-card info">Location is blocked. Allow location for this site in the phone's settings so control can see where your truck is while the app is open.</div>}
       {err && <div className="fa-err" onClick={() => setErr(null)}>{err}</div>}
       {badTag && <div className="fa-err">Tag {badTag} is not on the Texas yard map. Tell your instructor.</div>}
       {toast && <div className="fa-toast">{toast}</div>}
@@ -165,7 +182,8 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
       {!tag && tab === 'radio' && <RadioLog inbox={inbox} sent={sentRadio} onText={t => sendVoice(null, t)} />}
       {!tag && tab === 'map' && <YardMap snap={snap} me={me.truck} jobs={jobs} />}
       {!tag && tab === 'log' && <div className="fa-card">{inbox.length ? [...inbox].reverse().map(m => <div key={m.id} className="logline"><span className={`st ${m.state}`}>{m.kind === 'step' ? `STEP ${m.step}` : m.kind === 'job' ? `${m.job} · ${m.jobStatus}` : m.kind.toUpperCase()} · {m.state}</span> {m.text}</div>) : <div className="dim">Nothing yet.</div>}
-        <button className="fa-btn ghost" onClick={() => { if (confirm('Leave this session on this phone?')) { saveMe(null); setMe(null); } }}>Leave session</button></div>}
+        <button className="fa-btn ghost" onClick={() => { if (confirm('Leave this session on this phone?')) { saveMe(null); setMe(null); } }}>Leave session</button>
+        <CalibrateTool gps={gps} /></div>}
 
       <PttBar onClip={c => sendVoice(c)} onError={setErr} />
       <nav className="fa-nav four">
@@ -509,6 +527,87 @@ function TagLabels() {
           </div>
         ))}</div>
       </div>)}
+    </div>
+  );
+}
+
+// ── GPS while the app is open ───────────────────────────────
+type GpsState = 'off' | 'waiting' | 'on' | 'denied' | 'unavailable';
+export interface GpsHook { state: GpsState; acc: number | null; last: GeolocationPosition | null; toggle(): void; }
+function useGps(me: Me | null): GpsHook {
+  const [want, setWant] = useState(() => { try { return localStorage.getItem('gridops-gps') !== 'off'; } catch { return true; } });
+  const [state, setState] = useState<GpsState>('off');
+  const [last, setLast] = useState<GeolocationPosition | null>(null);
+  const sent = useRef<{ at: number; lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (!me || !want) { setState('off'); return; }
+    if (!('geolocation' in navigator)) { setState('unavailable'); return; }
+    setState('waiting');
+    const be = getBackend();
+    let fix: GeolocationPosition | null = null;
+    // Report every 15 s, or sooner if they've moved 8 m (never more than every 4 s).
+    const maybeSend = () => {
+      if (!fix) return;
+      const now = Date.now(), { latitude: lat, longitude: lng, accuracy } = fix.coords;
+      const s0 = sent.current;
+      const moved = s0 ? Math.hypot((lat - s0.lat) * 111320, (lng - s0.lng) * 111320 * Math.cos(lat * Math.PI / 180)) : 1e9;
+      if (!s0 || now - s0.at > 15_000 || (moved > 8 && now - s0.at > 4_000)) {
+        sent.current = { at: now, lat, lng };
+        be.saveGps(me.code, me.truck, { lat, lng, acc: Math.round(accuracy), at: now });
+      }
+    };
+    const id = navigator.geolocation.watchPosition(p => { fix = p; setState('on'); setLast(p); maybeSend(); },
+      err => setState(err.code === err.PERMISSION_DENIED ? 'denied' : 'waiting'), { enableHighAccuracy: true, maximumAge: 5_000, timeout: 30_000 });
+    const tick = setInterval(maybeSend, 5_000);
+    return () => { navigator.geolocation.clearWatch(id); clearInterval(tick); };
+  }, [me?.code, me?.truck, want]); // eslint-disable-line react-hooks/exhaustive-deps
+  return {
+    state, acc: last ? Math.round(last.coords.accuracy) : null, last,
+    toggle: () => setWant(w => { const n = !w; try { localStorage.setItem('gridops-gps', n ? 'on' : 'off'); } catch { /* */ } return n; }),
+  };
+}
+
+/** Instructor: stand at two poles and record their GPS so the yard drawing sits on the real ground. */
+function CalibrateTool({ gps }: { gps: GpsHook }) {
+  const [open, setOpen] = useState(false);
+  const [a, setA] = useState('L1'), [b, setB] = useState('L25');
+  const [fa, setFa] = useState<[number, number] | null>(null), [fb, setFb] = useState<[number, number] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const capture = async (set: (v: [number, number]) => void, label: string) => {
+    if (!('geolocation' in navigator)) return;
+    setBusy(label); setMsg(null);
+    const fixes: GeolocationPosition[] = [];
+    await new Promise<void>(res => {
+      const id = navigator.geolocation.watchPosition(p => { fixes.push(p); if (fixes.length >= 8) { navigator.geolocation.clearWatch(id); res(); } }, () => { navigator.geolocation.clearWatch(id); res(); }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 });
+      setTimeout(() => { navigator.geolocation.clearWatch(id); res(); }, 25_000);
+    });
+    setBusy(null);
+    if (!fixes.length) { setMsg('No GPS fix — step into the open and try again.'); return; }
+    const best = fixes.sort((x, y) => x.coords.accuracy - y.coords.accuracy).slice(0, Math.max(3, Math.ceil(fixes.length / 2)));
+    const lat = best.reduce((s, p) => s + p.coords.latitude, 0) / best.length, lng = best.reduce((s, p) => s + p.coords.longitude, 0) / best.length;
+    set([lat, lng]);
+    setMsg(`${label}: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(best[0].coords.accuracy)} m)`);
+  };
+  const save = async () => {
+    if (!fa || !fb) return;
+    const pw = prompt('Instructor password:'); if (!pw) return;
+    const doc = currentYardDoc();
+    if (!doc.poles[a] || !doc.poles[b]) { setMsg('Unknown pole number'); return; }
+    doc.cal = { a: { pole: a, ll: fa }, b: { pole: b, ll: fb }, at: new Date().toISOString() };
+    try { await saveYard(doc, pw); setMsg('Saved. Reload Sparks Command and the crew phones to use it.'); } catch (e: any) { setMsg(e?.message ?? String(e)); }
+  };
+  if (!open) return <button className="fa-btn ghost" onClick={() => setOpen(true)}>Instructor: calibrate yard GPS{CAL.measured ? ' (measured)' : ''}</button>;
+  return (
+    <div className="fa-card">
+      <div className="lbl">CALIBRATE YARD GPS (instructor)</div>
+      <div className="dim">Stand right at the base of each pole, phone held still, sky in view. Two poles far apart work best.</div>
+      {gps.state !== 'on' && <div className="fa-warn small">Turn GPS on first (📍 at the top).</div>}
+      <div className="row2"><input className="mono" value={a} onChange={e => setA(e.target.value.toUpperCase())} /><button className="fa-btn" disabled={!!busy} onClick={() => capture(setFa, `Pole ${a}`)}>{busy === `Pole ${a}` ? 'Reading GPS…' : fa ? '✔ Re-read' : `I'm at ${a}`}</button></div>
+      <div className="row2"><input className="mono" value={b} onChange={e => setB(e.target.value.toUpperCase())} /><button className="fa-btn" disabled={!!busy} onClick={() => capture(setFb, `Pole ${b}`)}>{busy === `Pole ${b}` ? 'Reading GPS…' : fb ? '✔ Re-read' : `I'm at ${b}`}</button></div>
+      {msg && <div className="dim">{msg}</div>}
+      <button className="fa-btn pri" disabled={!fa || !fb || !!busy} onClick={save}>Save calibration</button>
+      <button className="fa-btn ghost" onClick={() => setOpen(false)}>Close</button>
     </div>
   );
 }

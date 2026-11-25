@@ -2,7 +2,7 @@
 // Draws from a YardDoc so the editor can show a draft. Drag to pan, wheel / pinch /
 // buttons to zoom. Pole numbers appear once you're zoomed in enough to read them.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { YARD_AREAS, YARD_PARKING, type YardDoc, type YardDocLink } from '../sim/texasYard';
+import { YARD_AREAS, YARD_PARKING, yardXY, type YardDoc, type YardDocLink } from '../sim/texasYard';
 import type { YardSnap } from './backend';
 import './yardsvg.css';
 
@@ -119,7 +119,11 @@ export function YardSvg({ doc, snap, me, highlight, edit, height = '60vh', label
   const fCol = (l: YardDocLink) => (l.dev?.no ? '#9aa4b2' : (l.a.startsWith('U') || l.b.startsWith('U')) ? '#c58be0' : '#3b9ae1');
   const devAt = (l: YardDocLink): XY => { const at = P[l.dev!.at]?.xy, o = P[l.dev!.at === l.a ? l.b : l.a]?.xy; if (!at || !o) return [0, 0]; const d = Math.hypot(o[0] - at[0], o[1] - at[1]) || 1, k = Math.min(5, d * 0.3); return [at[0] + ((o[0] - at[0]) / d) * k, at[1] + ((o[1] - at[1]) / d) * k]; };
   const crewAt: Record<string, string[]> = {};
-  for (const [t, c] of Object.entries(snap?.trucks ?? {})) { const k = c.at === 'yard' ? 'YARD' : c.at; (crewAt[k] ??= []).push(t); }
+  const gpsXY: Record<string, XY> = {};
+  for (const [t, c] of Object.entries(snap?.trucks ?? {})) {
+    if (c.gps && Date.now() - c.gps.at < 120_000) { gpsXY[t] = yardXY([c.gps.lat, c.gps.lng]); continue; }
+    const k = c.at === 'yard' ? 'YARD' : c.at; (crewAt[k] ??= []).push(t);
+  }
   const devPole: Record<string, string> = {};
   for (const l of doc.links) if (l.dev) devPole[l.dev.id] = l.dev.at;
   for (const [fid, src] of Object.entries(doc.sources)) { devPole[`CB-${fid.slice(3)}`] = src; devPole[`D-${fid.slice(3)}L`] = src; }
@@ -170,6 +174,10 @@ export function YardSvg({ doc, snap, me, highlight, edit, height = '60vh', label
         {Object.entries(doc.loads).map(([pid, ld]) => { const xy = P[pid]?.xy; if (!xy || !zoom || zoom < 1.3) return null; return <text key={'ld' + pid} x={xy[0] + r(6)} y={xy[1] + r(12)} fontSize={fs * 0.9} className="ys-load" pointerEvents="none">⌂ {ld.name}</text>; })}
         {YARD_AREAS.filter(a => a.poly.length && a.name).map(a => { const c = a.poly.reduce((s, p) => [s[0] + p[0] / a.poly.length, s[1] + p[1] / a.poly.length], [0, 0]); return <text key={a.id + 't'} x={c[0]} y={c[1]} fontSize={fs * 1.15} className="ys-area" pointerEvents="none">{a.name}</text>; })}
         {showIds && Object.entries(P).map(([id, p]) => <text key={'l' + id} x={p.xy[0]} y={p.xy[1] - r(5.5)} fontSize={fs} className="ys-pid" pointerEvents="none">{id}</text>)}
+        {Object.entries(gpsXY).map(([t, p]) => <g key={'g' + t} pointerEvents="none">
+          <circle cx={p[0]} cy={p[1]} r={r(6)} fill={me === t ? '#58a6ff' : '#ffd28a'} stroke="#0a0e14" strokeWidth={r(1.5)} />
+          <text x={p[0]} y={p[1] + r(16)} fontSize={fs * 1.2} className={`ys-crew ${me === t ? 'me' : ''}`}>📍 {t}</text>
+        </g>)}
         {Object.entries(crewAt).map(([k, ts]) => { const p = crewXY(k); return <text key={'c' + k} x={p[0]} y={p[1] + r(16)} fontSize={fs * 1.2} className={`ys-crew ${me && ts.includes(me) ? 'me' : ''}`} pointerEvents="none">▲ {ts.join(' ')}</text>; })}
       </svg>
     </div>
