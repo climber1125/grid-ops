@@ -47,7 +47,11 @@ export default async (req) => {
     try {
       const r = await fetch(`${FS}/sessions/${code}/crews/${t}`, auth);
       if (!r.ok) { results[t] = 'no crew'; return; }
-      const sub = (await r.json())?.fields?.push?.stringValue;
+      const f = (await r.json())?.fields ?? {};
+      // App open on screen: the phone plays/shows it live, so no notification.
+      const activeAt = Number(f.activeAt?.integerValue ?? f.activeAt?.doubleValue ?? 0);
+      if (Date.now() - activeAt < 40_000) { results[t] = 'app open'; return; }
+      const sub = f.push?.stringValue;
       if (!sub) { results[t] = 'notifications off'; return; }
       await webpush.sendNotification(JSON.parse(sub), payload, { TTL: 900, urgency: 'high' });
       results[t] = 'sent';
