@@ -17,7 +17,7 @@ import { route, nearestName, SERVICE_CENTER } from './roads';
 import { checkOrder, type ExerciseDef, type ExState } from './exercise';
 import { stepPhrase, ACTION_LABEL } from './radio';
 import { isYardFeeder } from './texasYard';
-import { fieldIssueStep, fieldConfirm, fieldClearanceIssued, fieldReleaseAck, fieldDispatch, fieldManualDone, fieldApply, fieldNewJob, fieldAssignJob, fieldNewTrouble, fieldBriefDecision, fieldOrderFromBrief } from './field';
+import { fieldIssueStep, fieldConfirm, fieldClearanceIssued, fieldReleaseAck, fieldDispatch, fieldManualDone, fieldApply, fieldNewJob, fieldAssignJob, fieldNewTrouble, fieldBriefDecision, fieldOrderFromBrief, fieldGps } from './field';
 import type { FromCrew } from './types';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
@@ -190,6 +190,7 @@ export class Engine {
   fieldEvent(ev: FromCrew) { return fieldApply(this, ev); }
   fieldJob(kind: 'crossarm' | 'guy' | 'other', pole: string, note = '') { const r = fieldNewJob(this, kind, pole, note); return typeof r === 'string' ? r : null; }
   fieldAssign(jobId: string, truck: string) { return fieldAssignJob(this, jobId, truck); }
+  fieldGps(truck: string, g: { lat: number; lng: number; acc: number; at: number }) { fieldGps(this, truck, g); }
   fieldTrouble(template: string, pole: string) { const r = fieldNewTrouble(this, template, pole); return typeof r === 'string' ? r : null; }
   fieldBrief(jobId: string, ok: boolean, note = '') { return fieldBriefDecision(this, jobId, ok, note); }
   fieldBriefOrder(jobId: string) { const r = fieldOrderFromBrief(this, jobId); return this.s.orders[r] ? null : r; }

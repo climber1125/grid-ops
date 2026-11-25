@@ -122,6 +122,8 @@ export interface Truck {
 export type FieldStatus = 'At yard' | 'En route' | 'On site' | 'Working' | 'Standing by';
 export interface FieldCrewInfo {
   foreman: string; members: string[];
+  /** Last GPS fix from the phone (only while the crew app is open). at = phone wall clock ms. */
+  gps?: { lat: number; lng: number; acc: number; at: number };
   status: FieldStatus;
   /** Device the crew is at (or heading to); 'yard' at the service yard. */
   at: string; dest?: string;

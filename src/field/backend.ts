@@ -27,7 +27,7 @@ export const FIREBASE_CONFIG = {
   appId: '1:908623663663:web:ff0ae917ac71b43dca2cda',
 };
 
-export type YardSnap = { dev: Record<string, { open: boolean; tags: number; ctl?: string }>; live: Record<string, boolean>; spans?: Record<string, boolean>; t: number; clock: string; trucks?: Record<string, { status: string; at: string; dest?: string }> };
+export type YardSnap = { dev: Record<string, { open: boolean; tags: number; ctl?: string }>; live: Record<string, boolean>; spans?: Record<string, boolean>; t: number; clock: string; trucks?: Record<string, { status: string; at: string; dest?: string; gps?: { lat: number; lng: number; acc: number; at: number } }> };
 export interface CrewInfo { truck: string; foreman: string; members: string[]; t: number; }
 type Unsub = () => void;
 
@@ -46,7 +46,14 @@ export interface FieldBackend {
   sendFromCrew(code: string, ev: FromCrew): Promise<void>;
   onInbox(code: string, truck: string, cb: (msgs: ToCrew[]) => void): Unsub;
   onState(code: string, cb: (s: YardSnap | null) => void): Unsub;
+  // push + GPS (crew doc fields)
+  savePush(code: string, truck: string, sub: string | null): Promise<void>;
+  saveGps(code: string, truck: string, g: CrewGps): Promise<void>;
+  onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub;
+  /** Firebase ID token for calling the push function (console). */
+  idToken(): Promise<string | null>;
 }
+export interface CrewGps { lat: number; lng: number; acc: number; at: number; }
 
 /** Remembers ?fieldlocal so tag links (/t/DEV) opened later in the same browser stay on the test backend. */
 export function useLocalBackend(): boolean {
@@ -133,7 +140,7 @@ class FirebaseBackend implements FieldBackend {
   async join(code: string, crew: CrewInfo, ev: FromCrew) {
     const { db, fs, uid } = await this.init();
     const b = fs.writeBatch(db);
-    b.set(fs.doc(db, 'sessions', code, 'crews', crew.truck), strip({ ...crew, uid }));
+    b.set(fs.doc(db, 'sessions', code, 'crews', crew.truck), strip({ ...crew, uid }), { merge: true });
     b.set(fs.doc(db, 'sessions', code, 'fromCrew', ev.id), strip({ ...ev, uid }));
     try { await b.commit(); } catch (err: any) {
       if (err?.code === 'permission-denied') throw new Error('Could not join — check the session code with your instructor.');
@@ -160,6 +167,30 @@ class FirebaseBackend implements FieldBackend {
       un = fs.onSnapshot(fs.doc(db, 'sessions', code, 'public', 'state'), d => cb(d.exists() ? d.data() as YardSnap : null), () => cb(null));
     });
     return () => { dead = true; un?.(); };
+  }
+  async savePush(code: string, truck: string, sub: string | null) {
+    const { db, fs, uid } = await this.init();
+    await fs.setDoc(fs.doc(db, 'sessions', code, 'crews', truck), { uid, push: sub ?? fs.deleteField() }, { merge: true });
+  }
+  async saveGps(code: string, truck: string, g: CrewGps) {
+    const { db, fs, uid } = await this.init();
+    fs.setDoc(fs.doc(db, 'sessions', code, 'crews', truck), { uid, gps: g }, { merge: true }).catch(err => console.warn('gps save', err));
+  }
+  onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub {
+    let un: Unsub | null = null, dead = false;
+    this.init().then(({ db, fs }) => {
+      if (dead) return;
+      un = fs.onSnapshot(fs.collection(db, 'sessions', code, 'crews'), snap => {
+        const out: Record<string, { gps?: CrewGps; push?: boolean }> = {};
+        snap.forEach(d => { const x = d.data(); out[d.id] = { ...(x.gps ? { gps: x.gps } : {}), push: !!x.push }; });
+        cb(out);
+      }, err => console.warn('crews listener', err));
+    });
+    return () => { dead = true; un?.(); };
+  }
+  async idToken() {
+    const [{ getAuth }] = await Promise.all([import('firebase/auth'), this.init()]);
+    return (await getAuth().currentUser?.getIdToken()) ?? null;
   }
 }
 
@@ -213,4 +244,11 @@ class LocalBackend implements FieldBackend {
     let last = '';
     return this.watch(() => { const s = this.read(code).state; const j = JSON.stringify(s); if (j !== last) { last = j; cb(s); } });
   }
+  async savePush() { /* no push in local test mode */ }
+  async saveGps(code: string, truck: string, g: CrewGps) { this.write(code, d => { if (d.crews[truck]) (d.crews[truck] as any).gps = g; }); }
+  onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub {
+    let last = '';
+    return this.watch(() => { const c = this.read(code).crews; const o: Record<string, { gps?: CrewGps }> = {}; for (const [t, x] of Object.entries(c)) o[t] = (x as any).gps ? { gps: (x as any).gps } : {}; const j = JSON.stringify(o); if (j !== last) { last = j; cb(o); } });
+  }
+  async idToken() { return null; }
 }

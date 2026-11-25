@@ -80,3 +80,8 @@
 .fa .chip { font: 600 14px system-ui, sans-serif; color: #c9d4df; background: #0d1117; border: 1px solid #3a4658; border-radius: 18px; padding: 9px 12px; }
 .fa .chip.on { color: #fff; background: #1f6feb; border-color: #388bfd; }
 .fa .steprow { grid-template-columns: 90px 1fr 48px; align-items: center; }
+
+.fa-chips { display: flex; gap: 6px; margin: 8px 0 2px; }
+.fa-chip { flex: 1; font: 600 13px system-ui, sans-serif; color: #c9d4df; background: #161c25; border: 1px solid #3a4658; border-radius: 16px; padding: 7px 8px; }
+.fa-chip.ok { color: #7ee2a0; border-color: #2f6d43; }
+.fa-chip.bad { color: #ffb4ad; border-color: #8e1b1d; }
