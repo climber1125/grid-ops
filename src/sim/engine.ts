@@ -17,7 +17,7 @@ import { route, nearestName, SERVICE_CENTER } from './roads';
 import { checkOrder, type ExerciseDef, type ExState } from './exercise';
 import { stepPhrase, ACTION_LABEL } from './radio';
 import { isYardFeeder } from './texasYard';
-import { fieldIssueStep, fieldConfirm, fieldClearanceIssued, fieldReleaseAck, fieldDispatch, fieldManualDone, fieldApply, fieldNewJob, fieldAssignJob } from './field';
+import { fieldIssueStep, fieldConfirm, fieldClearanceIssued, fieldReleaseAck, fieldDispatch, fieldManualDone, fieldApply, fieldNewJob, fieldAssignJob, fieldNewTrouble, fieldBriefDecision, fieldOrderFromBrief } from './field';
 import type { FromCrew } from './types';
 import { CONTROL, devWord, findingText, repairMinutes, CAUSE_TEXT } from './radio';
 import { SCENARIOS, type ScenarioDef } from './scenarios';
@@ -190,6 +190,9 @@ export class Engine {
   fieldEvent(ev: FromCrew) { return fieldApply(this, ev); }
   fieldJob(kind: 'crossarm' | 'guy' | 'other', pole: string, note = '') { const r = fieldNewJob(this, kind, pole, note); return typeof r === 'string' ? r : null; }
   fieldAssign(jobId: string, truck: string) { return fieldAssignJob(this, jobId, truck); }
+  fieldTrouble(template: string, pole: string) { const r = fieldNewTrouble(this, template, pole); return typeof r === 'string' ? r : null; }
+  fieldBrief(jobId: string, ok: boolean, note = '') { return fieldBriefDecision(this, jobId, ok, note); }
+  fieldBriefOrder(jobId: string) { const r = fieldOrderFromBrief(this, jobId); return this.s.orders[r] ? null : r; }
   setPaused(p: boolean) { this.s.paused = p; this.bump(); }
   setAutoAssist(on: boolean) { this.s.autoAssist = on; this.decision(`Auto-assist ${on ? 'ON' : 'OFF'}`); this.bump(); }
   /** Id the next newOrder() will get (lets a linked window select it before the main window replies). */

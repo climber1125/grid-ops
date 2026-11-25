@@ -3,7 +3,7 @@
 //              instructor password can write (see firestore.rules).
 //   Browser    localStorage copy so the app starts offline with the last yard it saw.
 // Local test mode (?fieldlocal) keeps the yard in this browser only.
-import { applyYardDoc, checkYardDoc, type YardDoc } from '../sim/texasYard';
+import { applyYardDoc, checkYardDoc, migrateYardDoc, type YardDoc } from '../sim/texasYard';
 import { FIREBASE_CONFIG, useLocalBackend } from './backend';
 
 const CACHE = 'gridops-yard', LOCAL = 'gridops-yard-local';
@@ -21,7 +21,7 @@ export async function initYard(): Promise<void> {
   try {
     if (useLocalBackend()) {
       const l = readLS(LOCAL);
-      if (l?.doc && applyYardDoc(l.doc)) { yardSource = 'local'; yardSavedAt = l.at ?? null; }
+      if (l?.doc && applyYardDoc(migrateYardDoc(l.doc))) { yardSource = 'local'; yardSavedAt = l.at ?? null; }
       return;
     }
     const cached = readLS(CACHE);
@@ -35,7 +35,7 @@ export async function initYard(): Promise<void> {
       }
     } catch { /* offline — fall back to the cache */ }
     if (!doc && cached?.doc) { doc = cached.doc; at = cached.at ?? null; yardSource = 'cached'; }
-    if (doc && !applyYardDoc(doc)) yardSource = 'built-in';
+    if (doc && !applyYardDoc(migrateYardDoc(doc))) yardSource = 'built-in';
     yardSavedAt = at;
   } catch { /* keep the built-in yard */ }
 }

@@ -104,7 +104,12 @@ export const YARD_FEEDERS: YardFeeder[] = [
   {
     id: 'TX-4120', name: 'Source 2 — URD', color: '#c58be0', ratingA: 200, source: 'L27',
     spans: chain('L27', 'U1', 'U2', 'U3', 'U4', 'U5', 'U6'),
-    devs: { U1: { type: 'switch', id: 'S-4121', scada: false } },
+    devs: {
+      U1: { type: 'switch', id: 'S-4121', scada: false },
+      // Load-break elbows on the URD cable between pads (so one pad can be isolated and the rest backfed)
+      U3: { type: 'switch', id: 'E-4122', scada: false }, U4: { type: 'switch', id: 'E-4123', scada: false },
+      U5: { type: 'switch', id: 'E-4124', scada: false }, U6: { type: 'switch', id: 'E-4125', scada: false },
+    },
     xfmrs: {
       U2: { name: 'URD PAD 1', kw: 25, cust: 1 }, U3: { name: 'URD PAD 2', kw: 25, cust: 1 }, U4: { name: 'URD PAD 3', kw: 25, cust: 1 },
       U5: { name: 'URD PAD 4', kw: 25, cust: 1 }, U6: { name: 'URD PAD 5', kw: 25, cust: 1 },
@@ -190,6 +195,7 @@ export const JOB_POLES: string[] = [
   'A1-03', 'A1-18', 'A2-03', 'A2-18', 'B1-03', 'B1-18', 'B2-03', 'B2-18', 'DA-02', 'DA-19', 'DB-03', 'DB-18',
   'TA-04', 'TA-11', 'TB-03', 'TB-12', 'SA-02', 'SA-05', 'LC-01', 'LC-05',
   'L18', 'L22', 'L23', 'L33',
+  'U2', 'U3', 'U4', 'U5', 'U6',
 ];
 
 // ── Devices (everything with a tag) ─────────────────────────
@@ -197,6 +203,7 @@ export interface YardDevice { id: string; kind: string; pole: string; xy: XY; sc
 export function yardDeviceList(): YardDevice[] {
   const out: YardDevice[] = [];
   const kindOf: Record<YardDevType, string> = { switch: 'Switch', recloser: 'Recloser' };
+  const kindFor = (id: string, t: YardDevType) => (id.startsWith('E-') ? 'Load-break elbow (URD)' : kindOf[t]);
   for (const f of YARD_FEEDERS) {
     const n = f.id.slice(3), src = LINE_POLES[f.source];
     out.push({ id: `CB-${n}`, kind: `Breaker (${f.name.split(' — ')[0]})`, pole: f.source, xy: src, scada: true, feeder: f.id });
@@ -209,7 +216,7 @@ export function yardDeviceList(): YardDevice[] {
         out.push({ id: d.id, kind: 'Recloser', pole, xy, scada: d.scada, feeder: f.id });
         out.push({ id: `D-${k}B`, kind: 'Recloser load disconnect', pole, xy, scada: false, feeder: f.id });
         out.push({ id: `BP-${k}`, kind: 'Recloser bypass switch', pole, xy, scada: false, feeder: f.id });
-      } else out.push({ id: d.id, kind: kindOf[d.type], pole, xy, scada: d.scada, feeder: f.id });
+      } else out.push({ id: d.id, kind: kindFor(d.id, d.type), pole, xy, scada: d.scada, feeder: f.id });
     }
   }
   for (const t of YARD_TIES) out.push({ id: t.id, kind: t.name, pole: t.to, xy: LINE_POLES[t.to], scada: t.scada, feeder: t.toFeeder });
@@ -229,6 +236,8 @@ export interface YardDocPole { xy: XY; /** area id, or 'LINE' for a line pole */
 export interface YardDocLink { a: string; b: string; dev?: { type: YardDevType; id: string; at: string; no?: boolean; scada?: boolean } }
 export interface YardDoc {
   v: 1;
+  /** 2 = has the URD load-break elbows. */
+  rev?: number;
   poles: Record<string, YardDocPole>;
   links: YardDocLink[];
   loads: Record<string, { name: string; kw: number; critical?: boolean }>;
@@ -251,7 +260,7 @@ const BASE: YardDoc = (() => {
     for (const [p, x] of Object.entries(f.xfmrs)) loads[p] = { name: x.name, kw: x.kw, ...(x.critical ? { critical: true } : {}) };
   }
   for (const t of YARD_TIES) links.push({ a: t.from, b: t.to, dev: { type: 'switch', id: t.id, at: t.to, no: true } });
-  return { v: 1, poles, links, loads, sources: { 'TX-4110': YARD_FEEDERS[0].source, 'TX-4120': YARD_FEEDERS[1].source } };
+  return { v: 1, rev: 2, poles, links, loads, sources: { 'TX-4110': YARD_FEEDERS[0].source, 'TX-4120': YARD_FEEDERS[1].source } };
 })();
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 export const defaultYardDoc = (): YardDoc => clone(BASE);
@@ -263,6 +272,20 @@ const FEEDER_META: Record<string, { name: string; color: string }> = {
   'TX-4110': { name: 'Source 1 — LAP / perimeter', color: '#3b9ae1' },
   'TX-4120': { name: 'Source 2 — URD', color: '#c58be0' },
 };
+
+/** Bring a yard saved by an older version up to date (adds the URD elbows if the spans are still there). */
+export function migrateYardDoc(d: YardDoc): YardDoc {
+  if ((d.rev ?? 1) >= 2) return d;
+  const used = new Set(d.links.flatMap(l => (l.dev ? [l.dev.id] : [])));
+  const add: [string, string, string][] = [['U2', 'U3', 'E-4122'], ['U3', 'U4', 'E-4123'], ['U4', 'U5', 'E-4124'], ['U5', 'U6', 'E-4125']];
+  for (const [a, b, id] of add) {
+    const l = d.links.find(x => (x.a === a && x.b === b) || (x.a === b && x.b === a));
+    if (l && !l.dev && !used.has(id)) l.dev = { type: 'switch', id, at: b };
+  }
+  for (const p of ['U2', 'U3', 'U4', 'U5', 'U6']) if (d.poles[p] && d.poles[p].area === 'LINE') d.poles[p].job = true;
+  d.rev = 2;
+  return d;
+}
 
 /** Check a doc before saving: returns problems (empty = good). */
 export function checkYardDoc(d: YardDoc): string[] {

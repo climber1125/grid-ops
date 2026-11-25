@@ -6,7 +6,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useEffect, useMemo, useRef, useState } from 'react';
 import QRCode from 'qrcode';
-import type { FieldStatus, FromCrew, SwAction, ToCrew } from '../sim/types';
+import type { FieldStatus, FromCrew, SwAction, ToCrew, JobBrief } from '../sim/types';
 import {
   YARD_FEEDERS, LINE_POLES, ALL_POLES, JOB_POLES,
   yardDeviceList, areaOfPole, isLinePole, currentYardDoc, type YardDevice,
@@ -60,6 +60,7 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
   const [sentRadio, setSentRadio] = useState<{ id: string; at: number; text?: string; audio?: string; dur?: number }[]>([]);
   const radioSeen = useRef<Set<string> | null>(null);
   const [unheard, setUnheard] = useState<ToCrew | null>(null);
+  const [briefFor, setBriefFor] = useState<string | null>(null);
   const be = getBackend();
 
   useEffect(() => {
@@ -144,12 +145,13 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
           flash(wrong ? `Reported ${ACT[action]} ${tag} — the operator will see this was not your cleared step` : `Reported ${DONE_WORD[action] ?? ACT[action]} ${tag}`);
           closeTag();
         }} />}
-      {tag && !DEV[tag] && <PoleTagCard pole={tag} how={how} job={jobs.find(j => j.pole === tag)} holding={!!holding} onClose={closeTag} onAct={(j, s) => { jobAct(j, s); closeTag(); }} />}
+      {briefFor && (() => { const bj = jobs.find(j => j.job === briefFor); return bj ? <BriefForm j={bj} me={me} onCancel={() => setBriefFor(null)} onSend={b => { send({ kind: 'brief', job: bj.job, brief: b }); setBriefFor(null); flash('Job brief sent to control'); }} /> : null; })()}
+      {!briefFor && tag && !DEV[tag] && <PoleTagCard pole={tag} how={how} job={jobs.find(j => j.pole === tag)} holding={!!holding} onClose={closeTag} onBrief={j => { closeTag(); setBriefFor(j.job!); }} onAct={(j, s) => { jobAct(j, s); closeTag(); }} />}
 
-      {!tag && tab === 'now' && <>
+      {!briefFor && !tag && tab === 'now' && <>
         {infos.map(m => <div key={m.id} className="fa-card info">{m.text}</div>)}
         <StepCard m={curStep} onManualTag={() => curStep?.dev && setTag(curStep.dev)} />
-        {jobs.map(j => <JobCard key={j.id} j={j} holding={!!holding} onAct={s => jobAct(j, s)} onEnRoute={() => { send({ kind: 'status', status: 'En route', dest: j.pole }); flash(`En route to ${j.pole}`); }} onNoTag={() => { send({ kind: 'status', status: 'On site', at: j.pole }); setTag(j.pole!); }} />)}
+        {jobs.map(j => <JobCard key={j.id} j={j} holding={!!holding} onBrief={() => setBriefFor(j.job!)} onAct={s => jobAct(j, s)} onEnRoute={() => { send({ kind: 'status', status: 'En route', dest: j.pole }); flash(`En route to ${j.pole}`); }} onNoTag={() => { send({ kind: 'status', status: 'On site', at: j.pole }); setTag(j.pole!); }} />)}
         {!curStep && !jobs.length && <div className="fa-card dim">No work order or switching step for you right now. Keep your status current.</div>}
         {dispatch && !curStep && <div className="fa-card dispatch"><div className="lbl">DISPATCH</div><div className="big">{dispatch.text}</div></div>}
         <StatusCard status={status} at={mine?.at ?? 'yard'} dest={mine?.dest ?? dispatch?.dev} onSet={(st, dev) => {
@@ -167,7 +169,7 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
 
       <PttBar onClip={c => sendVoice(c)} onError={setErr} />
       <nav className="fa-nav four">
-        {(['now', 'radio', 'map', 'log'] as const).map(t => <button key={t} className={tab === t && !tag ? 'on' : ''} onClick={() => { setTag(null); setTab(t); }}>{t === 'now' ? 'Orders' : t === 'radio' ? 'Radio' : t === 'map' ? 'Yard map' : 'Log'}</button>)}
+        {(['now', 'radio', 'map', 'log'] as const).map(t => <button key={t} className={tab === t && !tag ? 'on' : ''} onClick={() => { setTag(null); setBriefFor(null); setTab(t); }}>{t === 'now' ? 'Orders' : t === 'radio' ? 'Radio' : t === 'map' ? 'Yard map' : 'Log'}</button>)}
       </nav>
     </div>
   );
@@ -253,36 +255,98 @@ function JoinScreen({ onJoined, tagId }: { onJoined(m: Me): void; tagId: string 
   );
 }
 
-function JobCard({ j, holding, onAct, onEnRoute, onNoTag }: { j: ToCrew; holding: boolean; onAct(s: 'ack' | 'working' | 'complete'): void; onEnRoute(): void; onNoTag(): void }) {
+/** What still stands between the crew and "Start work". */
+function startBlock(j: ToCrew, holding: boolean): string | null {
+  if (j.trouble && !j.revealed) return 'Scan the tag on site first';
+  if (j.needsBrief && j.briefStatus !== 'approved') return j.briefStatus === 'sent' ? 'Waiting for control to approve the brief' : 'Send your job brief first';
+  if (j.needsClearance && !holding) return 'Request a clearance first';
+  return null;
+}
+function BriefStatus({ j, onBrief }: { j: ToCrew; onBrief(): void }) {
+  if (!j.needsBrief || (j.trouble && !j.revealed)) return null;
+  if (j.briefStatus === 'approved') return <div className="fa-ok">✔ Job brief approved by control</div>;
+  if (j.briefStatus === 'sent') return <div className="dim">📋 Job brief sent — waiting for control to approve it.</div>;
+  return <>
+    {j.briefStatus === 'returned' && <div className="fa-warn small">Control returned your brief{j.briefNote ? `: ${j.briefNote}` : ''}. Fix it and send it again.</div>}
+    <button className="fa-btn pri" onClick={onBrief}>📋 {j.briefStatus === 'returned' ? 'Fix and resend job brief' : 'Job brief'}</button>
+  </>;
+}
+
+function JobCard({ j, holding, onAct, onEnRoute, onNoTag, onBrief }: { j: ToCrew; holding: boolean; onAct(s: 'ack' | 'working' | 'complete'): void; onEnRoute(): void; onNoTag(): void; onBrief(): void }) {
   const st = j.jobStatus;
+  const hidden = j.trouble && !j.revealed;
+  const block = startBlock(j, holding);
   return (
-    <div className={`fa-card job ${st === 'Working' ? 'working' : ''}`}>
-      <div className="lbl">WORK ORDER {j.job} · {st}</div>
+    <div className={`fa-card job ${st === 'Working' ? 'working' : ''} ${j.trouble ? 'trouble' : ''}`}>
+      <div className="lbl">{j.trouble ? '⚠ TROUBLE CALL' : 'WORK ORDER'} {j.job} · {st}</div>
       <div className="big">{j.text}</div>
-      {j.needsClearance && <div className="fa-warn small">On the line — do not start until you hold a clearance that covers {j.pole}.</div>}
+      {!hidden && j.needsClearance && <div className="fa-warn small">On the line — do not start until you hold a clearance that covers {j.pole}.</div>}
       {st === 'Assigned' && <button className="fa-btn pri" onClick={() => onAct('ack')}>Acknowledge</button>}
       {(st === 'Assigned' || st === 'Acknowledged') && <button className="fa-btn" onClick={onEnRoute}>En route to {j.pole}</button>}
-      {(st === 'Acknowledged' || st === 'En route') && <><div className="dim">At the pole: tap or scan its tag to report on site.</div><button className="fa-btn ghost" onClick={onNoTag}>Tag won't read — I'm at {j.pole}</button></>}
-      {st === 'On site' && <button className="fa-btn pri" disabled={j.needsClearance && !holding} onClick={() => onAct('working')}>{j.needsClearance && !holding ? 'Request a clearance first' : 'Start work'}</button>}
-      {st === 'Working' && <button className="fa-btn pri" onClick={() => { if (confirm(`Report ${j.job} complete? Tools and material clear, pole safe.`)) onAct('complete'); }}>Job complete</button>}
+      {(st === 'Acknowledged' || st === 'En route' || st === 'Assigned') && <><div className="dim">At {j.pole}: tap or scan its tag to check in{j.trouble ? ' and get the details' : ''}.</div><button className="fa-btn ghost" onClick={onNoTag}>Tag won't read — I'm at {j.pole}</button></>}
+      {st === 'On site' && <BriefStatus j={j} onBrief={onBrief} />}
+      {st === 'On site' && <button className="fa-btn pri" disabled={!!block} onClick={() => onAct('working')}>{block ?? 'Start work'}</button>}
+      {st === 'Working' && <button className="fa-btn pri" onClick={() => { if (confirm(`Report ${j.job} complete? Tools and material clear, everything safe.`)) onAct('complete'); }}>Job complete</button>}
     </div>
   );
 }
 
-function PoleTagCard({ pole, how, job, holding, onAct, onClose }: { pole: string; how: 'nfc' | 'qr'; job?: ToCrew; holding: boolean; onAct(j: ToCrew, s: 'ack' | 'working' | 'complete'): void; onClose(): void }) {
+function PoleTagCard({ pole, how, job, holding, onAct, onBrief, onClose }: { pole: string; how: 'nfc' | 'qr'; job?: ToCrew; holding: boolean; onAct(j: ToCrew, s: 'ack' | 'working' | 'complete'): void; onBrief(j: ToCrew): void; onClose(): void }) {
   const a = areaOfPole(pole);
-  const canStart = job && ['On site', 'Acknowledged', 'En route', 'Assigned'].includes(job.jobStatus ?? '');
+  const block = job ? startBlock(job, holding) : null;
   return (
     <div className="fa-card tag">
-      <div className="lbl">{how === 'nfc' ? 'NFC TAG' : 'QR TAG'} · {a ? a.name.toUpperCase() : 'PERIMETER LINE'}</div>
+      <div className="lbl">{how === 'nfc' ? 'NFC TAG' : 'QR TAG'} · {a ? a.name.toUpperCase() : pole.startsWith('U') ? 'URD' : 'PERIMETER LINE'}</div>
       <div className="huge mono">{pole}</div>
       {job ? <>
-        <div className="fa-ok">On site for <b>{job.job}</b>: {job.text}</div>
-        {job.needsClearance && !holding && <div className="fa-warn">This pole is on the line. Request a clearance and wait for it before you start.</div>}
-        {canStart && <button className="fa-btn pri" disabled={job.needsClearance && !holding} onClick={() => onAct(job, 'working')}>{job.needsClearance && !holding ? 'Clearance needed first' : 'Start work'}</button>}
+        <div className="fa-ok">Checked in for <b>{job.job}</b></div>
+        <div className="big">{job.trouble && !job.revealed ? 'Getting the call details from control…' : job.text}</div>
+        <BriefStatus j={job} onBrief={() => onBrief(job)} />
+        {job.jobStatus !== 'Working' && <button className="fa-btn pri" disabled={!!block} onClick={() => onAct(job, 'working')}>{block ?? 'Start work'}</button>}
         {job.jobStatus === 'Working' && <button className="fa-btn pri" onClick={() => onAct(job, 'complete')}>Job complete</button>}
       </> : <div className="dim">Reported on site at {pole}. You have no work order on this pole.</div>}
       <button className="fa-btn ghost" onClick={onClose}>Back</button>
+    </div>
+  );
+}
+
+const HAZARDS = ['Energized equipment', 'Backfeed possible', 'Oil / environmental', 'Traffic & public', 'Overhead clearance', 'Excavation / trench', 'Weather', 'Heat stress', 'Pinch points / rigging'];
+const PPE = ['FR clothing', 'Hard hat & safety glasses', 'Rubber gloves & sleeves', 'Hot sticks', 'Personal protective grounds', 'Voltage detector', 'Cones / barricades', 'Fall protection'];
+function BriefForm({ j, me, onSend, onCancel }: { j: ToCrew; me: Me; onSend(b: JobBrief): void; onCancel(): void }) {
+  const crewAll = [me.foreman, ...me.members];
+  const [hz, setHz] = useState<string[]>([]);
+  const [ppe, setPpe] = useState<string[]>([]);
+  const [iso, setIso] = useState('');
+  const [gnd, setGnd] = useState('');
+  const [method, setMethod] = useState('');
+  const [notes, setNotes] = useState('');
+  const [steps, setSteps] = useState<{ dev: string; action: SwAction }[]>([]);
+  const [signed, setSigned] = useState<string[]>([]);
+  const tog = (arr: string[], set: (v: string[]) => void, v: string) => set(arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]);
+  const ready = hz.length > 0 && ppe.length > 0 && !!iso.trim() && !!method.trim() && crewAll.every(c => signed.includes(c));
+  return (
+    <div className="fa-card brief">
+      <div className="lbl">JOB BRIEF · {j.job} · pole {j.pole}</div>
+      <div>{j.text}</div>
+      <div className="lbl">HAZARDS</div>
+      <div className="chips">{HAZARDS.map(h => <button key={h} className={`chip ${hz.includes(h) ? 'on' : ''}`} onClick={() => tog(hz, setHz, h)}>{h}</button>)}</div>
+      <div className="lbl">PPE & TOOLS</div>
+      <div className="chips">{PPE.map(h => <button key={h} className={`chip ${ppe.includes(h) ? 'on' : ''}`} onClick={() => tog(ppe, setPpe, h)}>{h}</button>)}</div>
+      <label>Isolation points (what makes it dead)<input value={iso} onChange={e => setIso(e.target.value)} placeholder="e.g. open the elbows both sides of the pad" /></label>
+      <div className="lbl">SWITCHING YOU NEED FROM CONTROL (in order)</div>
+      {steps.map((st, i) => <div key={i} className="row3 steprow">
+        <select value={st.action} onChange={e => setSteps(ss => ss.map((x, k) => (k === i ? { ...x, action: e.target.value as SwAction } : x)))}><option value="open">OPEN</option><option value="close">CLOSE</option></select>
+        <select value={st.dev} onChange={e => setSteps(ss => ss.map((x, k) => (k === i ? { ...x, dev: e.target.value } : x)))}>{DEVS.map(d => <option key={d.id} value={d.id}>{d.id} — {d.kind}</option>)}</select>
+        <button className="fa-btn ghost sm" onClick={() => setSteps(ss => ss.filter((_, k) => k !== i))}>✕</button>
+      </div>)}
+      <button className="fa-btn ghost" onClick={() => setSteps(ss => [...ss, { dev: DEVS[0].id, action: 'open' }])}>+ Add switching step</button>
+      <label>Grounding plan<input value={gnd} onChange={e => setGnd(e.target.value)} placeholder="Where the grounds go" /></label>
+      <label>Work method / steps<input value={method} onChange={e => setMethod(e.target.value)} placeholder="How you'll do the job" /></label>
+      <label>Notes<input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else for control" /></label>
+      <div className="lbl">CREW SIGN-OFF — everyone on the job briefed</div>
+      {crewAll.map(c => <label key={c} className="chk"><input type="checkbox" checked={signed.includes(c)} onChange={() => tog(signed, setSigned, c)} /><span>{c}{c === me.foreman ? ' (foreman)' : ''}</span></label>)}
+      <button className="fa-btn pri" disabled={!ready} onClick={() => onSend({ hazards: hz, ppe, isolation: iso.trim(), grounding: gnd.trim(), method: method.trim(), steps, crew: signed, ...(notes.trim() ? { notes: notes.trim() } : {}) })}>{ready ? 'Send brief to control' : 'Hazards, PPE, isolation, method and every crew sign-off are required'}</button>
+      <button className="fa-btn ghost" onClick={onCancel}>Cancel</button>
     </div>
   );
 }

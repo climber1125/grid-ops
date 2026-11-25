@@ -361,7 +361,9 @@ export function buildTopology(): Topology {
         cur = out;
       } else if (dv) {
         const n2 = mkNode(pos);
-        mkDev(dv.id, cur, n2, yf.id, 'switch', dv.scada, false, pos, { loc: `Pole ${pid}` } as any);
+        mkDev(dv.id, cur, n2, yf.id, 'switch', dv.scada, false, pos, (dv.id.startsWith('E-')
+          ? { loc: `Pad at ${pid}`, lb: true, equip: 'Load-break elbow (200 A URD), operate with a hot stick — load-break rated' }
+          : { loc: `Pole ${pid}` }) as any);
         info.sch.push({ kind: 'dev', id: dv.id, f, node: n2 });
         cur = n2;
       }

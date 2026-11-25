@@ -709,7 +709,7 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
 
   Z: {
     id: 'Z', short: 'Z', name: 'Field Switching — Texas Campus (training)',
-    brief: 'Instructor-led, 30–45 minutes, password required. Real crews on phones work the NLC Texas yard while simulated crews run Sparks. Yard work orders (crossarm change-outs, guying) go to the real crews — assign them in the Field tab. At 5 minutes, YW-103: crossarm change-out at line pole L23 on the perimeter line (between S-4115 and S-4117). Write the switching order, keep the South Gate & Cameras on by picking up from Source 2 through TS-4119, isolate, and clear the crew. Storm outages hit Sparks at 15 minutes. Expect trouble on the yard after that. Crews tap the tag at each device or job pole and set the OPEN/CLOSED flag; their dots move when the foreman updates status.',
+    brief: 'Instructor-led, 30–45 minutes, password required. Real crews on phones work the NLC Texas yard while simulated crews run Sparks. Yard work orders (crossarm change-outs, guying) go to the real crews — assign them in the Field tab. At 5 minutes, YW-103: crossarm change-out at line pole L23 on the perimeter line (between S-4115 and S-4117). Write the switching order, keep the South Gate & Cameras on by picking up from Source 2 through TS-4119, isolate, and clear the crew. Storm outages hit Sparks at 15 minutes. At 19 minutes a customer calls with no power at URD Pad 3 — dispatch a crew to U4 blind; they get the real story when they scan in, then send a job brief and work the switching with you. Expect more trouble on the yard after that. Crews tap the tag at each device or job pole and set the OPEN/CLOSED flag; their dots move when the foreman updates status.',
     objectives: [
       { id: 'z1', text: 'Every field operation done on an issued, confirmed step' },
       { id: 'z2', text: 'Yard work orders off the line completed by real crews' },
@@ -717,6 +717,7 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
       { id: 'z4', text: 'YW-103: South Gate & Cameras stay on; perimeter back to normal after' },
       { id: 'z5', text: 'Yard lockout: South Gate & Cameras restored within 15 minutes' },
       { id: 'z6', text: 'Yard lockout: repaired under clearance, East Shops on, yard back to normal' },
+      { id: 'z8', text: 'Pad trouble call: brief approved, isolated & cleared, transformer replaced, URD back to normal' },
       { id: 'z7', text: 'No safety violations' },
     ],
     background: { single: 2400 },
@@ -734,6 +735,7 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
       const sched: [number, string, any][] = [
         [300, 'pw', {}],
         [900, 'storm', {}], [930, 'mom', { f: 'CH-1210' }], [990, 'xf', { f: 'IW-2120' }], [1080, 'lat', { f: 'BS-3110' }],
+        [1140, 'pad', {}],
         [1200, 'job', { k: 'guy', p: 'DA-19', n: 'new guy on the corner, install and tension' }], [1260, 'xf', { f: 'CH-1220' }],
         [1500, 'yard', {}], [2100, 'clear', {}],
       ];
@@ -752,6 +754,13 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
           break;
         }
         case 'job': e.fieldJob(d.k, d.p, d.n); break;
+        case 'pad': {
+          const r = e.fieldTrouble('padxfmr', 'U4');
+          if (r) { e.log('SYSTEM', 'warn', `Pad trouble call skipped: ${r}`); break; }
+          F.padT = e.s.t;
+          e.log('OMS', 'alarm', 'Customer call: no power at URD PAD 3. Dispatch a field crew to U4 — they only learn what they find when they scan in.');
+          break;
+        }
         case 'storm':
           e.s.weather = { text: 'SEVERE T-STORM WARNING — gusts 55 mph, lightning', level: 'warning' };
           e.log('SYSTEM', 'alarm', 'NWS: Severe Thunderstorm Warning for Sparks. Expect outages.');
@@ -761,7 +770,7 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
         case 'xf': { const ls = e.T.loadIds.filter(l => e.T.loads[l].feeder === d.f && e.T.loads[l].cls === 'res' && e.loadEn(l)); if (ls.length) fault(e, e.pick(ls), true, 'xfmr_failure', true); break; }
         case 'yard': {
           // Don't drop the yard fault in the middle of YW-103 — hold it up to 10 more minutes.
-          const busy = Object.values(e.s.clearances).some(c => c.status === 'Active' && e.s.trucks[c.truck]?.field) || e.s.dev['TS-4119'].open === false;
+          const busy = Object.values(e.s.clearances).some(c => c.status === 'Active' && e.s.trucks[c.truck]?.field) || e.s.dev['TS-4119'].open === false || e.s.dev['TS-4129']?.open === false;
           if (busy && (d.tries ?? 0) < 5) { e.schedule(120, 'scn', { name: 'yard', tries: (d.tries ?? 0) + 1 }); break; }
           const el = e.T.feeders['TX-4110'].mainEls.find(x => (e.T.els[x] as any).loc === 'Span L18–L19')!;
           const f = fault(e, el, false, 'tree_primary', true, false);
@@ -811,14 +820,22 @@ export const SCENARIOS: Record<string, ScenarioDef> = {
         const yardLoadsOn = e.T.loadIds.filter(l => e.T.loads[l].feeder.startsWith('TX')).every(l => e.loadEn(l));
         if (yf && !yf.active && yardNormal && yardLoadsOn && e.loadEn(shops) && !Object.values(e.s.clearances).some(c => c.status === 'Active')) e.setObj('z6', 'pass');
       }
-      if (e.s.t > 45 * 60) for (const id of ['z2', 'z3', 'z4', 'z5', 'z6']) if (e.s.scen.obj[id].status === 'pending') e.setObj(id, 'fail', 'Not done by 45 min');
+      const pad = Object.values(J).find(j => j.trouble?.template === 'padxfmr');
+      if (pad) {
+        const pf = pad.trouble?.fault ? e.s.faults[pad.trouble.fault] : undefined;
+        const urdNormal = ['E-4122', 'E-4123', 'E-4124', 'E-4125', 'TS-4129', 'S-4121'].every(id => !e.s.dev[id] || e.s.dev[id].open === (e.T.els[id] as DevEl).normalOpen);
+        const urdOn = e.T.loadIds.filter(l => e.T.loads[l].feeder === 'TX-4120').every(l => e.loadEn(l));
+        if (pad.status === 'Working' && pad.briefStatus !== 'approved') e.setObj('z8', 'fail', 'Work started without an approved brief');
+        if (pad.status === 'Complete' && pf && !pf.active && urdNormal && urdOn && !Object.values(e.s.clearances).some(c => c.status === 'Active' && c.truck === pad.truck)) e.setObj('z8', 'pass', `${Math.round((e.s.t - pad.created) / 60)} min call to restore`);
+      }
+      if (e.s.t > 45 * 60) for (const id of ['z2', 'z3', 'z4', 'z5', 'z6', 'z8']) if (e.s.scen.obj[id].status === 'pending') e.setObj(id, 'fail', 'Not done by 45 min');
       const ob = e.s.scen.obj;
-      if (ob.z4.status !== 'pending' && ob.z6.status !== 'pending' && ob.z2.status !== 'pending') {
+      if (ob.z4.status !== 'pending' && ob.z6.status !== 'pending' && ob.z2.status !== 'pending' && ob.z8.status !== 'pending') {
         if (ob.z1.status === 'pending') e.setObj('z1', 'pass');
         if (ob.z7.status === 'pending') e.setObj('z7', 'pass');
       }
     },
-    isDone(e) { const ob = e.s.scen.obj; return (ob.z4.status !== 'pending' && ob.z6.status !== 'pending' && ob.z2.status !== 'pending' && ob.z1.status !== 'pending') || e.s.t > 50 * 60; },
+    isDone(e) { const ob = e.s.scen.obj; return (ob.z4.status !== 'pending' && ob.z6.status !== 'pending' && ob.z2.status !== 'pending' && ob.z8.status !== 'pending' && ob.z1.status !== 'pending') || e.s.t > 50 * 60; },
   },
 };
 
