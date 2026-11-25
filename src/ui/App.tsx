@@ -517,15 +517,15 @@ export default function App() {
 
         {compact && (
           <div className="monbar">
-            {([['gis', 'Map'], ['scada', 'SCADA'], ['sw', 'Switching'], ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms']] as [Mon, string][]).map(([k, label]) => {
+            {([['gis', 'Map'], ['scada', 'SCADA'], ['tx', 'Texas Ops'], ['sw', 'Switching'], ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms']] as [Mon, string][]).map(([k, label]) => {
               const badge = k === 'oms' ? openInc : k === 'radio' ? pendReq : k === 'alarms' ? unackAl : 0;
-              return <button key={k} className={`btn ${mon === k ? 'on' : ''}`} onClick={() => { setMon(k); if (k === 'gis' || k === 'scada' || k === 'sw') setTabRaw(k); }}>{label}{badge ? <span className={`badge ${k === 'alarms' || k === 'radio' ? 'red' : 'amber'}`} style={{ marginLeft: 4 }}>{badge}</span> : null}</button>;
+              return <button key={k} className={`btn ${mon === k ? 'on' : ''}`} onClick={() => { setMon(k); if (k === 'gis' || k === 'scada' || k === 'sw' || k === 'tx') setTabRaw(k); }}>{label}{badge ? <span className={`badge ${k === 'alarms' || k === 'radio' ? 'red' : 'amber'}`} style={{ marginLeft: 4 }}>{badge}</span> : null}</button>;
             })}
           </div>
         )}
 
         {showMain && (
-          <div className="panel mainpane" style={compact && !['gis', 'scada', 'sw'].includes(mon) ? { display: 'none' } : undefined}>
+          <div className="panel mainpane" style={compact && !['gis', 'scada', 'sw', 'tx'].includes(mon) ? { display: 'none' } : undefined}>
             <div className="ph">
               <div className="tabs">
                 <button className={`tab ${curTab === 'gis' ? 'on' : ''}`} onClick={() => pickTab('gis')}>M1 · GIS / System map</button>
