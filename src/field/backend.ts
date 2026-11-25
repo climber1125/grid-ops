@@ -49,6 +49,8 @@ export interface FieldBackend {
   // push + GPS (crew doc fields)
   savePush(code: string, truck: string, sub: string | null): Promise<void>;
   saveGps(code: string, truck: string, g: CrewGps): Promise<void>;
+  /** Heartbeat while the crew app is on screen (0 = gone to background). */
+  setActive(code: string, truck: string, at: number): Promise<void>;
   onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub;
   /** Firebase ID token for calling the push function (console). */
   idToken(): Promise<string | null>;
@@ -176,6 +178,10 @@ class FirebaseBackend implements FieldBackend {
     const { db, fs, uid } = await this.init();
     fs.setDoc(fs.doc(db, 'sessions', code, 'crews', truck), { uid, gps: g }, { merge: true }).catch(err => console.warn('gps save', err));
   }
+  async setActive(code: string, truck: string, at: number) {
+    const { db, fs, uid } = await this.init();
+    fs.setDoc(fs.doc(db, 'sessions', code, 'crews', truck), { uid, activeAt: at }, { merge: true }).catch(() => {});
+  }
   onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub {
     let un: Unsub | null = null, dead = false;
     this.init().then(({ db, fs }) => {
@@ -245,6 +251,7 @@ class LocalBackend implements FieldBackend {
     return this.watch(() => { const s = this.read(code).state; const j = JSON.stringify(s); if (j !== last) { last = j; cb(s); } });
   }
   async savePush() { /* no push in local test mode */ }
+  async setActive() { /* no push in local test mode */ }
   async saveGps(code: string, truck: string, g: CrewGps) { this.write(code, d => { if (d.crews[truck]) (d.crews[truck] as any).gps = g; }); }
   onCrews(code: string, cb: (crews: Record<string, { gps?: CrewGps; push?: boolean }>) => void): Unsub {
     let last = '';

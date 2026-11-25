@@ -68,6 +68,18 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
   const [push, setPush] = useState<PushState>('off');
   useEffect(() => { pushState().then(setPush); if (me) refreshPush(me.code, me.truck); }, [me?.code, me?.truck]); // eslint-disable-line react-hooks/exhaustive-deps
   const gps = useGps(me);
+  // While the app is on screen, tell the server so pushes are skipped — calls play live in the app instead.
+  useEffect(() => {
+    if (!me) return;
+    const be2 = getBackend();
+    const beat = () => { if (document.visibilityState === 'visible') be2.setActive(me.code, me.truck, Date.now()); };
+    const vis = () => { if (document.visibilityState === 'visible') beat(); else be2.setActive(me.code, me.truck, 0); };
+    beat();
+    const id = setInterval(beat, 20_000);
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('pagehide', vis);
+    return () => { clearInterval(id); document.removeEventListener('visibilitychange', vis); window.removeEventListener('pagehide', vis); be2.setActive(me.code, me.truck, 0); };
+  }, [me?.code, me?.truck]); // eslint-disable-line react-hooks/exhaustive-deps
   const be = getBackend();
 
   useEffect(() => {
@@ -75,6 +87,7 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
     const a = be.onInbox(me.code, me.truck, m => {
       // Radio calls already in the inbox when the app opens are history, not new calls.
       if (!radioSeen.current) radioSeen.current = new Set(m.filter(x => x.kind === 'radio').map(x => x.id));
+      if (!cueSeen.current) cueSeen.current = new Set(m.map(x => `${x.id}|${x.state}|${x.jobStatus ?? ''}|${x.briefStatus ?? ''}`));
       setInbox([...m].sort((x, y) => x.t - y.t || x.id.localeCompare(y.id)));
     });
     const b = be.onState(me.code, setSnap);
@@ -94,6 +107,17 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
     tagged.current = true;
     send({ kind: 'status', status: 'On site', at: tagId });
   }, [me, tagId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // New dispatches / steps / clearances / work orders while the app is open: short buzz + tone.
+  const cueSeen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const key = (m: ToCrew) => `${m.id}|${m.state}|${m.jobStatus ?? ''}|${m.briefStatus ?? ''}`;
+    const cues = inbox.filter(m => m.kind !== 'radio' && m.kind !== 'info' ? m.state === 'issued' || m.state === 'cleared' || m.state === 'repeat' : m.kind === 'info');
+    if (!cueSeen.current) return;
+    let fresh = false;
+    for (const m of cues) { const k = key(m); if (!cueSeen.current.has(k)) { cueSeen.current.add(k); fresh = true; } }
+    if (fresh) { chirp(); try { navigator.vibrate?.([150, 80, 150]); } catch { /* */ } }
+  }, [inbox]);
 
   // Incoming radio calls: chirp + play the clip (browsers may need a tap first).
   useEffect(() => {
