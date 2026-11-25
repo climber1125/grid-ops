@@ -322,6 +322,12 @@ export function fieldApply(e: Engine, ev: FromCrew): string | null {
       tr.field.lastT = e.s.t;
       return jobStep(e, tr, j, ev.jstep);
     }
+    case 'radio': {
+      if (tr?.field) tr.field.lastT = e.s.t;
+      e.log('RADIO', 'info', `Field crew ${truck}: ${ev.audio ? `🎙 voice ${Math.round(ev.dur ?? 0)}s` : ''}${ev.text ? `${ev.audio ? ' — ' : ''}"${ev.text}"` : ''}`);
+      e.bump();
+      return null;
+    }
     case 'note': {
       e.log('DISPATCH', 'info', `Field crew ${truck}: ${ev.text ?? ''}`);
       e.bump();

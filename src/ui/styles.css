@@ -483,3 +483,10 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 
 .yarea { font: 700 11px system-ui, sans-serif; color: #e8edf3; background: rgba(10,14,20,.7); padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
 .ypid { font: 600 8px ui-monospace, monospace; color: #ffe2a8; transform: translate(-50%, -150%); white-space: nowrap; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+.fradio { display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; border: 1px solid #5a4a1a; border-radius: 6px; background: rgba(60, 45, 10, .25); margin: 4px 6px; }
+.fradio .fptt { width: 100%; min-height: 40px; font-weight: 800; letter-spacing: .04em; }
+.fradio .fptt.on { background: #b62324; border-color: #f85149; color: #fff; }
+.fradio .fr-log { overflow: auto; max-height: 260px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.fradio .fr-item { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.fradio .fr-item.in b { color: #ffd28a; }
+.fradio .fr-item.out b { color: #8ab4ff; }

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import type { Engine } from '../sim/engine';
 import { yardSnapshot } from '../sim/field';
 import { getBackend } from './backend';
+import { addRadio } from './radioStore';
 
 export interface LinkStatus { ok: boolean; err: string | null; lastSent: number; lastHeard: number; kind: 'firebase' | 'local'; }
 
@@ -18,6 +19,13 @@ export function useFieldLink(e: Engine, isMaster: boolean): LinkStatus | null {
     const set = (p: Partial<LinkStatus>) => { status = { ...status, ...p }; setSt(status); };
     set({});
     const un = be.onFromCrew(code, ev => {
+      if (ev.kind === 'radio') {
+        const at = typeof ev.sentAt === 'number' ? ev.sentAt : Date.now();
+        addRadio({ id: ev.id, from: ev.truck, to: 'OPS', at, clock: e.hhmm(), text: ev.text, audio: ev.audio, mime: ev.mime, dur: ev.dur }, true);
+        e.fieldEvent({ ...ev, audio: ev.audio ? 'clip' : undefined });
+        set({ lastHeard: Date.now() });
+        return;
+      }
       const r = e.fieldEvent(ev);
       if (r) console.info('field event', ev.kind, ev.truck, '→', r);
       set({ lastHeard: Date.now() });

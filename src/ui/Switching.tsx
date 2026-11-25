@@ -1,6 +1,8 @@
 // Switching orders & clearances — written, approved, issued step-by-step
 // with three-part communication (issue → repeat-back → confirm).
 import { useEffect, useState, Fragment } from 'react';
+import { useRadio } from '../field/radioStore';
+import { playClip } from '../field/fieldRadio';
 import { useCtx } from './ctx';
 import type { DevEl } from '../sim/types';
 import { devWord, actionsFor, ACTION_LABEL } from '../sim/radio';
@@ -154,6 +156,7 @@ export function SwitchingView() {
                 {step.status === 'RepeatBack' ? (
                   <>
                     <div className="dim">{e.s.trucks[step.exec]?.field ? <>Field crew {step.exec} — <b>listen to the read-back on the radio</b> and compare it to the order:</> : <>Truck {step.exec} repeat-back for step {o.cur + 1}:</>}</div>
+                    {e.s.trucks[step.exec]?.field && <FieldReadback truck={step.exec} />}
                     {!e.s.trucks[step.exec]?.field && <div className="q">{ACTION_LABEL[step.rbAction!]} {step.rbDev} — {devWord(e.T.els[step.rbDev!] as DevEl)} at {(e.T.els[step.rbDev!] as DevEl).loc}</div>}
                     <div className="dim" style={{ marginBottom: 6 }}>Order says: <b className="mono">{ACTION_LABEL[step.action]} {step.dev}</b>. Compare carefully before confirming.</div>
                     <div className="acts">
@@ -197,6 +200,22 @@ export function SwitchingView() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Latest voice read-back(s) from a field crew, to play before confirming. */
+function FieldReadback({ truck }: { truck: string }) {
+  const items = useRadio();
+  const recent = items.filter(x => x.from === truck && Date.now() - x.at < 5 * 60_000).slice(-2).reverse();
+  if (!recent.length) return <div className="q dim">Waiting for Truck {truck} to read it back (voice clip on the field radio)…</div>;
+  return (
+    <div className="q" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+      {recent.map((it, i) => <span key={it.id} style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+        {i === 0 ? 'Read-back:' : 'Earlier:'}
+        {it.audio ? <button className="btn sm" onClick={() => playClip(it.audio!)}>▶ {Math.round(it.dur ?? 0)}s · {it.clock}</button> : null}
+        {it.text ? <span>"{it.text}"</span> : null}
+      </span>)}
     </div>
   );
 }

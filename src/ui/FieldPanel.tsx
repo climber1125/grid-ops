@@ -6,6 +6,7 @@ import { useCtx, age } from './ctx';
 import type { DevEl } from '../sim/types';
 import { devWord } from '../sim/radio';
 import { YARD_HOME } from '../sim/field';
+import { FieldRadio } from './FieldRadio';
 import { JOB_POLES, ALL_POLES, areaOfPole, isLinePole } from '../sim/texasYard';
 
 export function joinUrl(code: string, local: boolean) {
@@ -81,6 +82,9 @@ export function FieldPanel() {
           <input placeholder="Note (optional)" value={note} onChange={ev => setNote(ev.target.value)} style={{ width: 160 }} />
           <button className="btn pri" disabled={!pick} onClick={() => { const r = e.fieldSendTo(pick, dev, note.trim()); if (r) flash(r, 'warn'); else { flash(`Sent ${pick} to ${dev}`, 'good'); setNote(''); } }}>Send</button>
         </div>
+
+        <div className="sec-t">Field radio (all traffic this session)</div>
+        <FieldRadio />
 
         <div className="sec-t">Yard work orders</div>
         <table className="grid">

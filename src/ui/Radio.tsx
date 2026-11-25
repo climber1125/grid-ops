@@ -1,6 +1,7 @@
 // MONITOR 4 — Radio / Communications console
 import { useEffect, useRef, useState } from 'react';
 import { useCtx } from './ctx';
+import { FieldRadio } from './FieldRadio';
 import type { Request } from '../sim/types';
 import { SayOr, PttBar, TypeTx, PhraseChips, CheatSheet } from './VoiceUi';
 
@@ -58,6 +59,7 @@ export function RadioPanel({ keyed, voiceOn, setVoiceOn, audioOn, talkBack, setT
         <SayOr phrase="All units, Sparks Control, emergency traffic only"><button data-tut="emg" className="btn danger sm" onClick={() => run(e.declareEmergency())}>Emergency traffic</button></SayOr>
         <button data-tut="911" className="btn danger sm" title="Phone: call 911 and request EMS / fire / police" onClick={() => { run(e.notify911()); flash('911 called — EMS requested', 'alarm'); }}>☎ 911</button>
       </div>
+      {e.s.field?.code && <FieldRadio compact />}
       {emergency && (
         <div className="req emergency">
           <div className="rt"><b>EMERGENCY</b> — crew needs the line confirmed dead before rescue. Lock out the source, then tell them.</div>

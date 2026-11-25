@@ -1,5 +1,5 @@
 /* Crew phone app — big, high-contrast, works in sun with gloves off. */
-.fa { min-height: 100vh; background: #0d1117; color: #e8edf3; font: 16px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 0 10px 84px; max-width: 640px; margin: 0 auto; }
+.fa { min-height: 100vh; padding-bottom: 150px !important; background: #0d1117; color: #e8edf3; font: 16px/1.35 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 0 10px 84px; max-width: 640px; margin: 0 auto; }
 .fa .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
 .fa .dim { color: #9aa7b6; }
 .fa-top { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 2px 8px; position: sticky; top: 0; background: #0d1117; z-index: 2; border-bottom: 1px solid #263040; font-size: 17px; }
@@ -65,3 +65,11 @@
 .tags-page .flag { font-size: 13px; margin-top: 4px; }
 @media print { .noprint { display: none !important; } .tags-page { padding: 0; } }
 .fa .yardmap .ml.pid { font: 600 2.6px ui-monospace, monospace; stroke-width: 0.6px; fill: #ffe2a8; }
+
+.fa-nav.four { grid-template-columns: 1fr 1fr 1fr 1fr; }
+.fa-ptt { position: fixed; left: 0; right: 0; bottom: calc(52px + env(safe-area-inset-bottom)); padding: 6px 10px; background: #0d1117; z-index: 4; }
+.fa-ptt button { width: 100%; min-height: 58px; font: 800 18px system-ui, sans-serif; letter-spacing: .03em; color: #fff; background: #8e1b1d; border: 2px solid #f85149; border-radius: 12px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+.fa-ptt button.on { background: #f85149; box-shadow: 0 0 0 4px rgba(248,81,73,.35); }
+.fa-card.radio-in { border-color: #d29922; background: #33270a; cursor: pointer; }
+.fa-btn.sm { min-height: 36px; padding: 6px 10px; width: auto; font-size: 14px; }
+.fa-toast { bottom: 140px; }

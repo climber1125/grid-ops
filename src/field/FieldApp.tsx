@@ -12,6 +12,7 @@ import {
   yardDeviceList, areaOfPole, isLinePole, currentYardDoc, type YardDevice,
 } from '../sim/texasYard';
 import { YardSvg } from './YardSvg';
+import { canRecord, chirp, playClip, startRec, MAX_SEC, type Rec } from './fieldRadio';
 import { cleanCode, getBackend, useLocalBackend, type YardSnap } from './backend';
 import './field.css';
 
@@ -55,12 +56,19 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [tag, setTag] = useState<string | null>(tagId);
-  const [tab, setTab] = useState<'now' | 'map' | 'log'>('now');
+  const [tab, setTab] = useState<'now' | 'radio' | 'map' | 'log'>('now');
+  const [sentRadio, setSentRadio] = useState<{ id: string; at: number; text?: string; audio?: string; dur?: number }[]>([]);
+  const radioSeen = useRef<Set<string> | null>(null);
+  const [unheard, setUnheard] = useState<ToCrew | null>(null);
   const be = getBackend();
 
   useEffect(() => {
     if (!me) return;
-    const a = be.onInbox(me.code, me.truck, m => setInbox([...m].sort((x, y) => x.t - y.t || x.id.localeCompare(y.id))));
+    const a = be.onInbox(me.code, me.truck, m => {
+      // Radio calls already in the inbox when the app opens are history, not new calls.
+      if (!radioSeen.current) radioSeen.current = new Set(m.filter(x => x.kind === 'radio').map(x => x.id));
+      setInbox([...m].sort((x, y) => x.t - y.t || x.id.localeCompare(y.id)));
+    });
     const b = be.onState(me.code, setSnap);
     return () => { a(); b(); };
   }, [me?.code, me?.truck]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -78,6 +86,25 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
     tagged.current = true;
     send({ kind: 'status', status: 'On site', at: tagId });
   }, [me, tagId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Incoming radio calls: chirp + play the clip (browsers may need a tap first).
+  useEffect(() => {
+    const rs = inbox.filter(m => m.kind === 'radio');
+    if (!radioSeen.current) return;
+    for (const m of rs) if (!radioSeen.current.has(m.id)) {
+      radioSeen.current.add(m.id);
+      chirp(); try { navigator.vibrate?.([120, 60, 120]); } catch { /* no vibrate */ }
+      if (m.audio) playClip(m.audio).then(() => setUnheard(null));
+      setUnheard(m);
+    }
+  }, [inbox]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sendVoice = (c: { audio: string; mime: string; dur: number } | null, text?: string) => {
+    if (!c && !text) return;
+    const id = evId();
+    send({ kind: 'radio', ...(c ? { audio: c.audio, mime: c.mime, dur: c.dur } : {}), ...(text ? { text } : {}), sentAt: Date.now() });
+    setSentRadio(r => [...r, { id, at: Date.now(), text, audio: c?.audio, dur: c?.dur }].slice(-50));
+    flash(c ? `Sent ${Math.round(c.dur)}s to Sparks Control` : 'Message sent to Sparks Control');
+  };
 
   if (!me) return <JoinScreen onJoined={m => { saveMe(m); setMe(m); }} tagId={tagId} />;
 
@@ -105,6 +132,11 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
       {err && <div className="fa-err" onClick={() => setErr(null)}>{err}</div>}
       {badTag && <div className="fa-err">Tag {badTag} is not on the Texas yard map. Tell your instructor.</div>}
       {toast && <div className="fa-toast">{toast}</div>}
+      {unheard && <div className="fa-card radio-in" onClick={() => { if (unheard.audio) playClip(unheard.audio); setUnheard(null); }}>
+        <div className="lbl">📻 SPARKS CONTROL{unheard.audio ? ` · voice ${Math.round(unheard.dur ?? 0)}s` : ''}</div>
+        {unheard.text && <div className="big">{unheard.text}</div>}
+        {unheard.audio && <div>Tap to play</div>}
+      </div>}
 
       {tag && DEV[tag] && <TagCard dev={tag} how={how} curStep={curStep} snap={snap} onClose={closeTag}
         onOperate={(action, verified, wrong) => {
@@ -128,13 +160,55 @@ function CrewApp({ tagId, badTag, how }: { tagId: string | null; badTag: string 
           onRelease={() => { send({ kind: 'release' }); flash('Release sent — wait for the operator to acknowledge'); }} />
         <NoteCard onSend={t => { send({ kind: 'note', text: t }); flash('Note sent'); }} />
       </>}
+      {!tag && tab === 'radio' && <RadioLog inbox={inbox} sent={sentRadio} onText={t => sendVoice(null, t)} />}
       {!tag && tab === 'map' && <YardMap snap={snap} me={me.truck} jobs={jobs} />}
       {!tag && tab === 'log' && <div className="fa-card">{inbox.length ? [...inbox].reverse().map(m => <div key={m.id} className="logline"><span className={`st ${m.state}`}>{m.kind === 'step' ? `STEP ${m.step}` : m.kind === 'job' ? `${m.job} · ${m.jobStatus}` : m.kind.toUpperCase()} · {m.state}</span> {m.text}</div>) : <div className="dim">Nothing yet.</div>}
         <button className="fa-btn ghost" onClick={() => { if (confirm('Leave this session on this phone?')) { saveMe(null); setMe(null); } }}>Leave session</button></div>}
 
-      <nav className="fa-nav">
-        {(['now', 'map', 'log'] as const).map(t => <button key={t} className={tab === t && !tag ? 'on' : ''} onClick={() => { setTag(null); setTab(t); }}>{t === 'now' ? 'Orders' : t === 'map' ? 'Yard map' : 'Log'}</button>)}
+      <PttBar onClip={c => sendVoice(c)} onError={setErr} />
+      <nav className="fa-nav four">
+        {(['now', 'radio', 'map', 'log'] as const).map(t => <button key={t} className={tab === t && !tag ? 'on' : ''} onClick={() => { setTag(null); setTab(t); }}>{t === 'now' ? 'Orders' : t === 'radio' ? 'Radio' : t === 'map' ? 'Yard map' : 'Log'}</button>)}
       </nav>
+    </div>
+  );
+}
+
+/** Always-on hold-to-talk bar above the tabs. */
+function PttBar({ onClip, onError }: { onClip(c: { audio: string; mime: string; dur: number }): void; onError(m: string): void }) {
+  const [rec, setRec] = useState<Rec | null>(null);
+  const [t0, setT0] = useState(0);
+  const [, setTick] = useState(0);
+  useEffect(() => { if (!rec) return; const id = setInterval(() => setTick(n => n + 1), 200); return () => clearInterval(id); }, [rec]);
+  if (!canRecord()) return null;
+  const down = async () => {
+    if (rec) return;
+    try { const r = await startRec(c => { setRec(null); if (c) onClip(c); }); setT0(Date.now()); setRec(r); try { navigator.vibrate?.(40); } catch { /* */ } }
+    catch { onError('Microphone blocked. Allow the microphone for this site in the browser settings, then try again.'); }
+  };
+  const up = async () => { if (!rec) return; const r = rec; setRec(null); const c = await r.stop(); if (c) onClip(c); else onError('Too short — hold the button while you talk.'); };
+  return (
+    <div className="fa-ptt">
+      <button className={rec ? 'on' : ''} onPointerDown={ev => { ev.preventDefault(); down(); }} onPointerUp={up} onPointerCancel={() => { rec?.cancel(); setRec(null); }} onContextMenu={ev => ev.preventDefault()}>
+        {rec ? `● TALKING ${((Date.now() - t0) / 1000).toFixed(0)}s / ${MAX_SEC}s — let go to send` : 'HOLD TO TALK · Sparks Control'}
+      </button>
+    </div>
+  );
+}
+
+function RadioLog({ inbox, sent, onText }: { inbox: ToCrew[]; sent: { id: string; at: number; text?: string; audio?: string; dur?: number }[]; onText(t: string): void }) {
+  const [t, setT] = useState('');
+  const rows = [
+    ...inbox.filter(m => m.kind === 'radio').map(m => ({ id: m.id, in: true, key: m.t * 1000, text: m.text, audio: m.audio, dur: m.dur, when: '' })),
+    ...sent.map(m => ({ id: m.id, in: false, key: m.at, text: m.text, audio: m.audio, dur: m.dur, when: new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })),
+  ];
+  const ins = rows.filter(r => r.in).reverse(), outs = rows.filter(r => !r.in).reverse();
+  return (
+    <div className="fa-card">
+      <div className="lbl">FROM SPARKS CONTROL</div>
+      {ins.length ? ins.map(r => <div key={r.id} className="logline">{r.audio && <button className="fa-btn ghost sm" onClick={() => playClip(r.audio!)}>▶ {Math.round(r.dur ?? 0)}s</button>} {r.text}</div>) : <div className="dim">Nothing yet.</div>}
+      <div className="lbl" style={{ marginTop: 8 }}>YOU SENT</div>
+      {outs.length ? outs.map(r => <div key={r.id} className="logline"><span className="dim mono">{r.when}</span> {r.audio && <button className="fa-btn ghost sm" onClick={() => playClip(r.audio!)}>▶ {Math.round(r.dur ?? 0)}s</button>} {r.text}</div>) : <div className="dim">Nothing yet.</div>}
+      <div className="row2" style={{ marginTop: 8 }}><input placeholder="Type to Sparks Control" value={t} onChange={e => setT(e.target.value)} /><button className="fa-btn" disabled={!t.trim()} onClick={() => { onText(t.trim()); setT(''); }}>Send</button></div>
     </div>
   );
 }
@@ -216,8 +290,8 @@ function PoleTagCard({ pole, how, job, holding, onAct, onClose }: { pole: string
 function StepCard({ m, onManualTag }: { m: ToCrew | undefined; onManualTag(): void }) {
   if (!m) return null;
   const d = m.dev ? DEV[m.dev] : undefined;
-  if (m.state === 'issued') return <div className="fa-card step issued"><div className="lbl">STEP {m.step} · READ IT BACK ON THE RADIO</div><div className="big">{m.text}</div><div className="dim">Repeat the step back word for word. Do not operate until the operator says "That's correct."</div></div>;
-  if (m.state === 'repeat') return <div className="fa-card step repeat"><div className="lbl">NEGATIVE — REPEAT BACK AGAIN</div><div className="big">{m.text}</div><div className="dim">The operator did not confirm your read-back. Listen and read it back again.</div></div>;
+  if (m.state === 'issued') return <div className="fa-card step issued"><div className="lbl">STEP {m.step} · READ IT BACK ON THE RADIO</div><div className="big">{m.text}</div><div className="dim">Hold the red TALK button and read the step back word for word. Do not operate until the operator says "That's correct."</div></div>;
+  if (m.state === 'repeat') return <div className="fa-card step repeat"><div className="lbl">NEGATIVE — REPEAT BACK AGAIN</div><div className="big">{m.text}</div><div className="dim">The operator did not confirm your read-back. Listen, then hold TALK and read it back again.</div></div>;
   return (
     <div className="fa-card step cleared">
       <div className="lbl">CLEARED TO OPERATE · STEP {m.step}</div>

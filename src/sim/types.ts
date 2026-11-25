@@ -130,8 +130,10 @@ export interface FieldCrewInfo {
 /** Operator → crew message (one document per message; updated in place as it moves along). */
 export interface ToCrew {
   id: string; truck: string; t: number;
-  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info' | 'job';
+  kind: 'dispatch' | 'step' | 'clearance' | 'release' | 'info' | 'job' | 'radio';
   text: string;
+  /** Radio: recorded voice clip (data URL), its type and length in seconds. */
+  audio?: string; mime?: string; dur?: number;
   /** Job (work order) messages: job id, pole, its status, and whether it needs a clearance. */
   job?: string; pole?: string; jobStatus?: JobStatus; needsClearance?: boolean;
   dev?: string; action?: SwAction; order?: string; step?: number; loop?: boolean;
@@ -142,7 +144,9 @@ export interface ToCrew {
 /** Crew → operator event. */
 export interface FromCrew {
   id: string; truck: string; t: number; uid?: string;
-  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job';
+  kind: 'join' | 'status' | 'operate' | 'clearance' | 'release' | 'note' | 'job' | 'radio';
+  /** Radio: recorded voice clip (data URL), its type and length in seconds; sentAt = phone wall clock (ms). */
+  audio?: string; mime?: string; dur?: number; sentAt?: number;
   /** kind 'job': which job and what the crew did. */
   job?: string; jstep?: 'ack' | 'working' | 'complete';
   foreman?: string; members?: string[];
