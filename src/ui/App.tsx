@@ -97,6 +97,8 @@ export default function App() {
   // Phone: one screen at a time, bottom tab bar, big touch targets.
   const [phone, setPhone] = useState(() => window.innerWidth < 760);
   const [phoneMenu, setPhoneMenu] = useState(false);
+  const [layoutPref, setLayoutPrefRaw] = useState<'auto' | 'phone' | 'full'>(() => { try { const v = localStorage.getItem('gridops.layout'); return v === 'phone' || v === 'full' ? v : 'auto'; } catch { return 'auto'; } });
+  const setLayoutPref = (v: 'auto' | 'phone' | 'full') => { setLayoutPrefRaw(v); try { localStorage.setItem('gridops.layout', v); } catch { /* storage blocked */ } };
   const [focus, setFocus] = useState(false);
   useEffect(() => { const f = () => { setNarrow(window.innerWidth < 1280); setPhone(window.innerWidth < 760); }; window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
 
@@ -467,8 +469,9 @@ export default function App() {
   const objs = useMemo(() => e.scen.objectives, [e, s.scenario]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const emgActive = (s.scen.flags.emT !== undefined && s.scen.flags.confT === undefined) || (!!s.scen.flags.cdUnit && !s.scen.flags.cdDone);
-  const compact = view === 'all' && narrow;
-  const isPhone = compact && phone;
+  const compact = view === 'all' && (narrow || layoutPref === 'phone');
+  const isPhone = compact && layoutPref !== 'full' && (phone || layoutPref === 'phone');
+  const toggleLayout = () => { setLayoutPref(isPhone ? 'full' : 'phone'); setPhoneMenu(false); };
   const wsCls = view === 'all' ? `ws ${compact ? 'compact' : ''} ${isPhone ? 'phone' : ''} ${focus && !narrow ? 'focus' : ''}` : `ws single v-${view}`;
   const showMain = view === 'all' || view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx';
   const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx' ? view : tab;
@@ -512,6 +515,8 @@ export default function App() {
                 <button className={`btn ${audioOn ? 'on' : ''}`} onClick={() => { if (audioOn) { setAudioOn(false); player.current.stop(); } else { unlockAudio(); setAudioOn(true); } }}>{audioOn ? 'Audio on' : 'Audio off'}</button>
                 <button className="btn" onClick={toggleTheme}>{theme === 'dark' ? '☀ Light' : '☾ Dark'}</button>
                 <button className={`btn ${s.autoAssist ? 'on' : ''}`} onClick={() => { ce.setAutoAssist(!s.autoAssist); setVer(v => v + 1); }}>Auto-assist {s.autoAssist ? 'on' : 'off'}</button>
+                <button className="btn" onClick={toggleLayout}>🖥 Full layout</button>
+                <button className={`btn ${layoutPref === 'auto' ? 'on' : ''}`} onClick={() => { setLayoutPref('auto'); setPhoneMenu(false); }}>Auto layout</button>
                 <button className="btn danger" style={{ gridColumn: '1 / -1' }} onClick={() => { setShowEmg(true); setPhoneMenu(false); }}>⚠ Emergency tools</button>
               </div>
             </div>
@@ -553,6 +558,8 @@ export default function App() {
           <button className="btn" title={theme === 'dark' ? 'Light mode (projectors / bright rooms)' : 'Dark mode (monitors)'} onClick={toggleTheme}>{theme === 'dark' ? '☀' : '☾'}</button>
           <button className="btn" title="Full screen this window" onClick={() => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => undefined); }}>⛶</button>
           <button className="btn" onClick={() => setShowAar(true)}>AAR</button>
+          {view === 'all' && <button className="btn" title={layoutPref === 'auto' ? 'Switch to the phone layout (Auto picks by screen width)' : 'Switch to the phone layout'} onClick={toggleLayout}>📱</button>}
+          {view === 'all' && layoutPref !== 'auto' && <button className="btn" title="Go back to picking the layout by screen width" onClick={() => setLayoutPref('auto')}>Auto</button>}
         </div>
 
         {isPhone && (
