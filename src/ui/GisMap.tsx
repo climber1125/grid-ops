@@ -42,6 +42,8 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
   useEffect(() => {
     const T = eRef.current.T;
     const map = L.map(divRef.current!, { preferCanvas: true, minZoom: 12, maxZoom: 21, zoomSnap: 0.25, zoomDelta: 0.5, wheelPxPerZoomLevel: 90 }).fitBounds([[33.1885, -97.1640], [33.2500, -97.0850]], { padding: [10, 10] });
+    // Phones are tall: fit the system height instead of its width (pan sideways).
+    if (window.innerWidth < 760) map.setZoom(map.getZoom() + 1.25, { animate: false });
     mapRef.current = map;
     map.attributionControl.setPrefix('GRID OPS — synthetic network, Sparks TX');
     const mkPane = (n: string, z: number, noPtr = false) => { const p = map.createPane(n); p.style.zIndex = String(z); if (noPtr) p.style.pointerEvents = 'none'; return p; };
@@ -178,7 +180,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       map.invalidateSize();
       const n = map.getSize();
       if (n.x < 50 || n.y < 50) return;
-      if (Math.abs(n.x - lastW) > 80 || Math.abs(n.y - lastH) > 80) { lastW = n.x; lastH = n.y; map.fitBounds([[33.1885, -97.1640], [33.2500, -97.0850]], { padding: [6, 6] }); }
+      if (Math.abs(n.x - lastW) > 80 || Math.abs(n.y - lastH) > 80) { lastW = n.x; lastH = n.y; map.fitBounds([[33.1885, -97.1640], [33.2500, -97.0850]], { padding: [6, 6] }); if (window.innerWidth < 760) map.setZoom(map.getZoom() + 1.25, { animate: false }); }
     });
     ro.observe(divRef.current!);
 
@@ -330,10 +332,13 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
   }
 
   const set = (k: keyof Toggles) => setTg(t => ({ ...t, [k]: !t[k] }));
+  const [ctlOpen, setCtlOpen] = useState(() => window.innerWidth >= 760);
   return (
     <div className="mapwrap" style={{ display: visible ? 'block' : 'none' }}>
       <div ref={divRef} style={{ position: 'absolute', inset: 0 }} />
-      <div className="mapctl">
+      {!ctlOpen && <button className="btn mapctl-btn" onClick={() => setCtlOpen(true)}>Layers</button>}
+      <div className="mapctl" style={ctlOpen ? undefined : { display: 'none' }}>
+        {window.innerWidth < 760 && <button className="btn sm" onClick={() => setCtlOpen(false)}>✕</button>}
         {(['feeders', 'devices', 'xfmrs', 'calls', 'trucks', 'labels', 'osm'] as (keyof Toggles)[]).map(k => (
           <label key={k}><input type="checkbox" checked={tg[k]} onChange={() => set(k)} />{k === 'osm' ? 'OSM basemap (online)' : k === 'xfmrs' ? 'transformers' : k}</label>
         ))}
