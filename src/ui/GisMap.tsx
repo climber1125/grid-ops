@@ -338,7 +338,7 @@ export function GisMap({ visible, apiRef }: { visible: boolean; apiRef: React.Mu
       <div ref={divRef} style={{ position: 'absolute', inset: 0 }} />
       {!ctlOpen && <button className="btn mapctl-btn" onClick={() => setCtlOpen(true)}>Layers</button>}
       <div className="mapctl" style={ctlOpen ? undefined : { display: 'none' }}>
-        {window.innerWidth < 760 && <button className="btn sm" onClick={() => setCtlOpen(false)}>✕</button>}
+        <button className="btn sm" onClick={() => setCtlOpen(false)}>✕</button>
         {(['feeders', 'devices', 'xfmrs', 'calls', 'trucks', 'labels', 'osm'] as (keyof Toggles)[]).map(k => (
           <label key={k}><input type="checkbox" checked={tg[k]} onChange={() => set(k)} />{k === 'osm' ? 'OSM basemap (online)' : k === 'xfmrs' ? 'transformers' : k}</label>
         ))}
