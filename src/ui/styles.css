@@ -546,3 +546,11 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 .ws.phone .panel .pb, .ws.phone .monwrap .panel { overflow-x: auto; }
 .ws.phone .pinsp { position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 1400; }
 .ws.phone .pinsp .inspector { position: relative; max-height: 60dvh; top: auto; bottom: auto; }
+
+/* Pending clearance / release banner, shown wherever Switching isn't on screen */
+.clrbanner { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 1400; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--amber, #f0b429); background: #2a1f05; color: #ffe2a0; font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 4px 18px rgba(0,0,0,.5); animation: clrpulse 1.6s ease-in-out infinite; max-width: calc(100vw - 24px); }
+.clrbanner span { white-space: nowrap; }
+.clrbanner b { color: var(--amber, #f0b429); white-space: nowrap; }
+.clrbanner .go { margin-left: 6px; font-weight: 600; white-space: nowrap; }
+@keyframes clrpulse { 0%, 100% { box-shadow: 0 4px 18px rgba(0,0,0,.5); } 50% { box-shadow: 0 0 0 3px rgba(240,180,41,.45), 0 4px 18px rgba(0,0,0,.5); } }
+.ws.phone ~ .clrbanner, .ws.phone .clrbanner { bottom: calc(70px + env(safe-area-inset-bottom)); }

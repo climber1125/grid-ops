@@ -579,7 +579,7 @@ export default function App() {
         {compact && !isPhone && (
           <div className="monbar">
             {([['gis', 'Map'], ['scada', 'SCADA'], ['tx', 'Texas Ops'], ['sw', 'Switching'], ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms']] as [Mon, string][]).map(([k, label]) => {
-              const badge = k === 'oms' ? openInc : k === 'radio' ? pendReq : k === 'alarms' ? unackAl : 0;
+              const badge = k === 'oms' ? openInc : k === 'radio' ? pendReq : k === 'alarms' ? unackAl : k === 'sw' ? s.requests.filter(r => r.status === 'Pending' && (r.type === 'clearance' || r.type === 'release')).length : 0;
               return <button key={k} className={`btn ${mon === k ? 'on' : ''}`} onClick={() => { setMon(k); if (k === 'gis' || k === 'scada' || k === 'sw' || k === 'tx') setTabRaw(k); }}>{label}{badge ? <span className={`badge ${k === 'alarms' || k === 'radio' ? 'red' : 'amber'}`} style={{ marginLeft: 4 }}>{badge}</span> : null}</button>;
             })}
           </div>
@@ -639,6 +639,17 @@ export default function App() {
         {view === 'crew' && <div className="monwrap"><CrewBoard /></div>}
         {view === 'rel' && <div className="monwrap"><CrewBoard initial="rel" /></div>}
         {view === 'alarms' && <div className="monwrap">{alarms}</div>}
+        {(() => {
+          const clr = s.requests.filter(r => r.status === 'Pending' && (r.type === 'clearance' || r.type === 'release'));
+          const swShown = view === 'sw' || (view === 'all' && curTab === 'sw' && (!compact || mon === 'sw'));
+          if (!clr.length || swShown) return null;
+          const r = clr[0];
+          return <button className="clrbanner" onClick={() => setTab('sw')}>
+            <b>{r.type === 'clearance' ? '🔒 CLEARANCE REQUEST' : '🔓 CLEARANCE RELEASE'}</b>
+            <span>Truck {r.truck}{clr.length > 1 ? ` · +${clr.length - 1} more` : ''}</span>
+            <span className="go">Review ›</span>
+          </button>;
+        })()}
         {isPhone && !['gis', 'scada', 'tx', 'oms'].includes(mon) && sel && <div className="pinsp"><Inspector /></div>}
         {(!showMain || (isPhone && !['gis', 'scada', 'sw', 'tx'].includes(mon))) && toasts.length > 0 && <div className="toasts fixed">{toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}</div>}
 
