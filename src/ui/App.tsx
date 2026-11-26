@@ -94,8 +94,11 @@ export default function App() {
   const [tab, setTabRaw] = useState<Tab>(() => (['gis', 'scada', 'sw', 'tx'].includes(initialView()) ? initialView() as Tab : 'gis'));
   const [mon, setMon] = useState<Mon>('gis');
   const [narrow, setNarrow] = useState(() => window.innerWidth < 1280);
+  // Phone: one screen at a time, bottom tab bar, big touch targets.
+  const [phone, setPhone] = useState(() => window.innerWidth < 760);
+  const [phoneMenu, setPhoneMenu] = useState(false);
   const [focus, setFocus] = useState(false);
-  useEffect(() => { const f = () => setNarrow(window.innerWidth < 1280); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  useEffect(() => { const f = () => { setNarrow(window.innerWidth < 1280); setPhone(window.innerWidth < 760); }; window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
 
   const [sel, setSelLocal] = useState<Sel>(null);
   const [sbo, setSbo] = useState<SboReq | null>(null);
@@ -465,7 +468,8 @@ export default function App() {
 
   const emgActive = (s.scen.flags.emT !== undefined && s.scen.flags.confT === undefined) || (!!s.scen.flags.cdUnit && !s.scen.flags.cdDone);
   const compact = view === 'all' && narrow;
-  const wsCls = view === 'all' ? `ws ${compact ? 'compact' : ''} ${focus && !narrow ? 'focus' : ''}` : `ws single v-${view}`;
+  const isPhone = compact && phone;
+  const wsCls = view === 'all' ? `ws ${compact ? 'compact' : ''} ${isPhone ? 'phone' : ''} ${focus && !narrow ? 'focus' : ''}` : `ws single v-${view}`;
   const showMain = view === 'all' || view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx';
   const curTab: Tab = view === 'gis' || view === 'scada' || view === 'sw' || view === 'tx' ? view : tab;
   const pickTab = (t: Tab) => (view === 'all' ? (setTabRaw(t), setMon(t)) : setView(t));
@@ -477,7 +481,43 @@ export default function App() {
   return (
     <EngineCtx.Provider value={ctx}>
       <div className={wsCls}>
-        <div className="topbar">
+        {isPhone && (
+          <div className="topbar ptop">
+            <button className="btn pscen" onClick={() => setShowScen(true)}><span className="badge cyan">{e.scen.id}</span></button>
+            <div className="clock">{e.hhmmss().slice(0, 5)}</div>
+            <button className={`btn ${s.paused ? 'on' : ''}`} onClick={() => { ce.setPaused(!s.paused); setVer(v => v + 1); }}>{s.paused ? '▶' : '❚❚'}</button>
+            <button className="btn" disabled={!!s.field?.code} onClick={() => { const nx = s.speed === 1 ? 5 : s.speed === 5 ? 10 : 1; ce.setSpeed(nx); setVer(v => v + 1); }}>{s.speed}×</button>
+            <div className="stat"><span className="k">Out</span><span className={`v ${out ? 'c-red' : 'c-green'}`}>{out.toLocaleString()}</span></div>
+            <span style={{ flex: 1 }} />
+            {isMaster && !audioOn && <button className="btn pri" onClick={() => { unlockAudio(); setAudioOn(true); }}>🔊</button>}
+            <button className={`btn ${phoneMenu ? 'on' : ''}`} onClick={() => setPhoneMenu(!phoneMenu)}>☰</button>
+          </div>
+        )}
+        {isPhone && phoneMenu && (
+          <div className="pmenu" onClick={() => setPhoneMenu(false)}>
+            <div className="pmenu-sheet" onClick={ev => ev.stopPropagation()}>
+              <div className="pm-title">{e.scen.name}</div>
+              <div className="pm-stats">
+                <span>Served <b className="c-green">{served.toLocaleString()}</b></span><span>Out <b className={out ? 'c-red' : ''}>{out}</b></span>
+                <span>Incidents <b className={openInc ? 'c-amber' : ''}>{openInc}</b></span><span>Alarms <b className={unackAl ? 'c-red' : ''}>{unackAl}</b></span>
+                <span>SAIDI <b>{rel.saidi.toFixed(2)}</b></span><span className={`weather ${s.weather.level}`}>{s.weather.text}</span>
+              </div>
+              {objs.length > 0 && <div className="pm-obj">{objs.map(o => { const st = s.scen.obj[o.id]; return <div key={o.id}><span className={st?.status === 'pass' ? 'c-green' : st?.status === 'fail' ? 'c-red' : 'dim'}>{st?.status === 'pass' ? '✔' : st?.status === 'fail' ? '✖' : '○'}</span> {o.text}</div>; })}</div>}
+              <div className="pm-grid">
+                <button className="btn" onClick={() => { setShowScen(true); setPhoneMenu(false); }}>Scenarios</button>
+                <button className="btn" onClick={() => { setMon('scada'); setTabRaw('scada'); setPhoneMenu(false); }}>SCADA</button>
+                <button className="btn" onClick={() => { setMon('tx'); setTabRaw('tx'); setPhoneMenu(false); }}>Texas Ops</button>
+                <button className="btn" onClick={() => saveState('manual', s).then(() => { setSaved(x => ({ ...x, manual: Date.now() })); flash('Saved on this phone', 'good'); setPhoneMenu(false); })}>Save</button>
+                <button className="btn" onClick={() => { setShowAar(true); setPhoneMenu(false); }}>After-action</button>
+                <button className={`btn ${audioOn ? 'on' : ''}`} onClick={() => { if (audioOn) { setAudioOn(false); player.current.stop(); } else { unlockAudio(); setAudioOn(true); } }}>{audioOn ? 'Audio on' : 'Audio off'}</button>
+                <button className="btn" onClick={toggleTheme}>{theme === 'dark' ? '☀ Light' : '☾ Dark'}</button>
+                <button className={`btn ${s.autoAssist ? 'on' : ''}`} onClick={() => { ce.setAutoAssist(!s.autoAssist); setVer(v => v + 1); }}>Auto-assist {s.autoAssist ? 'on' : 'off'}</button>
+                <button className="btn danger" style={{ gridColumn: '1 / -1' }} onClick={() => { setShowEmg(true); setPhoneMenu(false); }}>⚠ Emergency tools</button>
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="topbar" style={isPhone ? { display: 'none' } : undefined}>
           <div className="brand"><div className="mark">SME</div><div><div className="n1">SPARKS MUNICIPAL ELECTRIC</div><div className="n2">GRID OPS · DISTRIBUTION CONTROL</div></div></div>
           <div className="tb-sep" />
           <button className="btn" onClick={() => setShowScen(true)} title="Scenarios"><span className="badge cyan">{e.scen.id}</span> {e.scen.name}</button>
@@ -515,7 +555,18 @@ export default function App() {
           <button className="btn" onClick={() => setShowAar(true)}>AAR</button>
         </div>
 
-        {compact && (
+        {isPhone && (
+          <nav className="ptabs">
+            {([['gis', '🗺', 'Map'], ['oms', '📞', 'Calls'], ['radio', '📻', 'Radio'], ['sw', '🔀', 'Switch'], ['crew', '🚚', 'Crews'], ['alarms', '🔔', 'Alarms']] as [Mon, string, string][]).map(([k, ic, label]) => {
+              const badge = k === 'oms' ? openInc : k === 'radio' ? pendReq : k === 'alarms' ? unackAl : k === 'sw' ? s.requests.filter(r => r.status === 'Pending' && (r.type === 'clearance' || r.type === 'release')).length : 0;
+              const on = mon === k || (k === 'gis' && (mon === 'scada' || mon === 'tx'));
+              return <button key={k} className={on ? 'on' : ''} onClick={() => { setMon(k); if (k === 'gis' || k === 'sw') setTabRaw(k); }}>
+                <span className="ic">{ic}</span><span className="lb">{label}</span>{badge ? <span className="pb">{badge}</span> : null}
+              </button>;
+            })}
+          </nav>
+        )}
+        {compact && !isPhone && (
           <div className="monbar">
             {([['gis', 'Map'], ['scada', 'SCADA'], ['tx', 'Texas Ops'], ['sw', 'Switching'], ['oms', 'OMS'], ['radio', 'Radio'], ['crew', 'Units'], ['alarms', 'Alarms']] as [Mon, string][]).map(([k, label]) => {
               const badge = k === 'oms' ? openInc : k === 'radio' ? pendReq : k === 'alarms' ? unackAl : 0;
@@ -578,7 +629,8 @@ export default function App() {
         {view === 'crew' && <div className="monwrap"><CrewBoard /></div>}
         {view === 'rel' && <div className="monwrap"><CrewBoard initial="rel" /></div>}
         {view === 'alarms' && <div className="monwrap">{alarms}</div>}
-        {!showMain && toasts.length > 0 && <div className="toasts fixed">{toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}</div>}
+        {isPhone && !['gis', 'scada', 'tx', 'oms'].includes(mon) && sel && <div className="pinsp"><Inspector /></div>}
+        {(!showMain || (isPhone && !['gis', 'scada', 'sw', 'tx'].includes(mon))) && toasts.length > 0 && <div className="toasts fixed">{toasts.map(t => <div key={t.id} className={`toast ${t.level}`}><span className="tt">{t.t}</span>{t.text}</div>)}</div>}
 
         {showEmg && (
           <div className="monmenu emgmenu">

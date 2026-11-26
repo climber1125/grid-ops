@@ -497,3 +497,52 @@ tr.holdrow td { border-bottom: 2px solid #3fb6d3 !important; }
 .creq.release { border-color: #2f9e55; background: rgba(16, 48, 28, .35); }
 .creq .acts { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 @keyframes creqPulse { 50% { box-shadow: 0 0 0 4px rgba(210, 153, 34, .45); } }
+
+/* ── Phone mode (≤ 760 px): one screen at a time, bottom tab bar, thumb-size targets ── */
+.ws.phone { grid-template-rows: auto minmax(0, 1fr) auto; gap: 0; padding: 0; height: 100vh; height: 100dvh; font-size: 13px; }
+.ws.phone .ptop { grid-column: 1; grid-row: 1; display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; padding: 6px 8px; padding-top: max(6px, env(safe-area-inset-top)); border-left: none; border-right: none; }
+.ws.phone .ptop .btn { min-height: 38px; min-width: 40px; font-size: 15px; padding: 4px 9px; }
+.ws.phone .ptop .clock { font-size: 18px; }
+.ws.phone .ptop .stat .k { font-size: 9px; } .ws.phone .ptop .stat .v { font-size: 15px; }
+.ws.phone .mainpane, .ws.phone .monwrap { grid-row: 2; border-left: none; border-right: none; }
+.ws.phone .ptabs { grid-column: 1; grid-row: 3; display: grid; grid-template-columns: repeat(6, 1fr); background: #0b121a; border-top: 1px solid var(--line2); padding-bottom: env(safe-area-inset-bottom); }
+.ws.phone .ptabs button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 0 6px; background: none; border: 0; color: var(--dim); font: 600 10.5px system-ui, sans-serif; }
+.ws.phone .ptabs button .ic { font-size: 19px; line-height: 1; filter: grayscale(.5); }
+.ws.phone .ptabs button.on { color: #fff; box-shadow: inset 0 3px var(--cyan); }
+.ws.phone .ptabs button.on .ic { filter: none; }
+.ws.phone .ptabs .pb { position: absolute; top: 3px; right: 18%; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #d93025; color: #fff; font: 700 10.5px system-ui; display: grid; place-items: center; }
+.ws.phone .btn { min-height: 34px; }
+.ws.phone .btn.sm { min-height: 30px; padding: 4px 8px; }
+.ws.phone input, .ws.phone select { min-height: 34px; font-size: 14px; }
+.ws.phone .panel > .ph { padding: 4px 8px; }
+.ws.phone .mapctl { top: 6px; left: 46px; right: 6px; font-size: 11px; max-height: 40%; overflow: auto; }
+.ws.phone .leaflet-control-zoom { display: none; }
+.ws.phone .inspector { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-height: 62%; border-radius: 12px 12px 0 0; border-bottom: none; font-size: 13px; }
+.ws.phone .inspector .ih { padding: 10px 12px; }
+.ws.phone .inspector .ib { padding: 8px 12px; }
+.ws.phone .inspector .btn { min-height: 38px; }
+.ws.phone .toasts { top: 6px; left: 6px; right: 6px; }
+.ws.phone .toasts.fixed { position: fixed; top: calc(56px + env(safe-area-inset-top)); z-index: 1500; }
+.ws.phone .monwrap { overflow: hidden; }
+.ws.phone .monwrap > .panel { border-left: none; border-right: none; }
+.ws.phone .panel .pb, .ws.phone .monwrap .scroll { -webkit-overflow-scrolling: touch; }
+.ws.phone table.grid { font-size: 12px; }
+.ws.phone .grid-wrap, .ws.phone .panel .pb > table { display: block; overflow-x: auto; }
+.ws.phone .sw { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 150px minmax(0, 1fr); }
+.ws.phone .creq { flex-direction: column; align-items: stretch; }
+.ws.phone .creq .acts .btn { flex: 1; min-height: 40px; }
+.ws.phone .fradio .fptt { min-height: 56px; font-size: 15px; }
+.ws.phone .modal { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border: none; }
+.ws.phone .modal-bg { place-items: stretch; }
+.pmenu { position: fixed; inset: 0; z-index: 1800; background: rgba(2, 5, 9, .6); display: flex; align-items: flex-end; }
+.pmenu-sheet { width: 100%; max-height: 85dvh; overflow: auto; background: var(--bg1); border-top: 1px solid var(--line2); border-radius: 14px 14px 0 0; padding: 12px 12px calc(14px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
+.pm-title { font-weight: 800; font-size: 15px; }
+.pm-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.pm-obj { font-size: 12.5px; display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pm-grid .btn { min-height: 46px; font-size: 14px; }
+.mapctl-btn { position: absolute; top: 6px; right: 6px; z-index: 500; min-height: 36px; }
+.ws.phone .mapctl { right: 6px; left: auto; max-width: 92%; }
+.ws.phone .panel .pb, .ws.phone .monwrap .panel { overflow-x: auto; }
+.ws.phone .pinsp { position: fixed; left: 0; right: 0; bottom: calc(56px + env(safe-area-inset-bottom)); z-index: 1400; }
+.ws.phone .pinsp .inspector { position: relative; max-height: 60dvh; top: auto; bottom: auto; }
