@@ -492,6 +492,7 @@ export default function App() {
             <button className="btn" disabled={!!s.field?.code} onClick={() => { const nx = s.speed === 1 ? 5 : s.speed === 5 ? 10 : 1; ce.setSpeed(nx); setVer(v => v + 1); }}>{s.speed}×</button>
             <div className="stat"><span className="k">Out</span><span className={`v ${out ? 'c-red' : 'c-green'}`}>{out.toLocaleString()}</span></div>
             <span style={{ flex: 1 }} />
+            {pttSupported && <button className="btn" title={talkBack ? 'Voice mode: say orders on the radio. Tap for buttons.' : 'Tap mode: buttons give orders. Tap for voice.'} onClick={() => { setTalkBack(!talkBack); flash(talkBack ? 'Tap mode: Dispatch, Recall and switching buttons are back' : 'Voice mode: hold TALK and say the order', 'good'); }}>{talkBack ? '🎙' : '👆'}</button>}
             {isMaster && !audioOn && <button className="btn pri" onClick={() => { unlockAudio(); setAudioOn(true); }}>🔊</button>}
             <button className={`btn ${phoneMenu ? 'on' : ''}`} onClick={() => setPhoneMenu(!phoneMenu)}>☰</button>
           </div>
@@ -515,6 +516,7 @@ export default function App() {
                 <button className={`btn ${audioOn ? 'on' : ''}`} onClick={() => { if (audioOn) { setAudioOn(false); player.current.stop(); } else { unlockAudio(); setAudioOn(true); } }}>{audioOn ? 'Audio on' : 'Audio off'}</button>
                 <button className="btn" onClick={toggleTheme}>{theme === 'dark' ? '☀ Light' : '☾ Dark'}</button>
                 <button className={`btn ${s.autoAssist ? 'on' : ''}`} onClick={() => { ce.setAutoAssist(!s.autoAssist); setVer(v => v + 1); }}>Auto-assist {s.autoAssist ? 'on' : 'off'}</button>
+                {pttSupported && <button className={`btn ${!talkBack ? 'on' : ''}`} onClick={() => { setTalkBack(!talkBack); setPhoneMenu(false); }}>{talkBack ? '👆 Tap mode' : '🎙 Voice mode'}</button>}
                 <button className="btn" onClick={toggleLayout}>🖥 Full layout</button>
                 <button className={`btn ${layoutPref === 'auto' ? 'on' : ''}`} onClick={() => { setLayoutPref('auto'); setPhoneMenu(false); }}>Auto layout</button>
                 <button className="btn danger" style={{ gridColumn: '1 / -1' }} onClick={() => { setShowEmg(true); setPhoneMenu(false); }}>⚠ Emergency tools</button>
@@ -546,6 +548,7 @@ export default function App() {
           <span className={`linkpill ${isMaster ? 'main' : role === 'replica' ? 'rep' : ''}`} title={isMaster ? 'This window runs the simulation; other windows mirror it' : 'Mirroring the main console — your actions are sent to it'}>
             {role === 'pending' ? 'CONNECTING…' : isMaster ? `MAIN${peerCount ? ` · ${peerCount} LINKED` : ''}` : 'LINKED'}
           </span>
+          {pttSupported && <button className={`btn ${talkBack ? 'on' : ''}`} title={talkBack ? 'Voice mode: orders are given by talking on the radio. Click for buttons.' : 'Tap mode: Dispatch, Recall and switching are buttons. Click for voice.'} onClick={() => setTalkBack(!talkBack)}>{talkBack ? '🎙 Voice' : '👆 Tap'}</button>}
           <label className="aa" title="Desk dispatcher handles routine dispatch / refuse approvals">
             <input type="checkbox" checked={s.autoAssist} onChange={ev => { ce.setAutoAssist(ev.target.checked); setVer(v => v + 1); }} /> Auto-assist
           </label>
